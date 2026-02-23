@@ -502,6 +502,10 @@ select option{background:var(--s2);}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     Balance Real
   </div>
+  <div class="ni" onclick="showPage('analisis',this)">
+    <span class="ni-ico">🧠</span>
+    <span class="ni-txt">Análisis IA</span>
+  </div>
   <div class="ni" onclick="showPage('educacion',this)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
     Educación Financiera
@@ -528,6 +532,24 @@ select option{background:var(--s2);}
 
 <!-- MAIN -->
 <main class="main">
+
+<!-- GLOBAL MONTH FILTER BAR -->
+<div id="global-mes-bar" style="
+  position:sticky;top:0;z-index:80;
+  background:rgba(8,13,28,0.92);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--b1);
+  display:flex;align-items:center;gap:12px;
+  padding:10px 20px;margin:-20px -20px 18px;
+  flex-wrap:wrap;">
+  <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--txt3);font-family:'DM Mono',monospace;white-space:nowrap;">📅 Período:</div>
+  <select id="global-mes" onchange="setGlobalMes(this.value)" style="
+    padding:6px 12px;border-radius:9px;font-size:12px;
+    background:var(--s2);border:1px solid var(--b2);color:var(--txt);
+    font-family:'DM Sans',sans-serif;cursor:pointer;flex:1;max-width:220px;">
+    <option value="">📊 Todos los meses (acumulado)</option>
+  </select>
+  <div id="global-mes-resumen" style="font-size:11px;color:var(--txt3);text-transform:none;letter-spacing:normal;font-family:'DM Sans',sans-serif;"></div>
+</div>
 
 <!-- DASHBOARD -->
 <div class="page active" id="page-dashboard">
@@ -726,6 +748,41 @@ select option{background:var(--s2);}
 </div>
 
 <!-- EDUCACIÓN FINANCIERA -->
+
+<!-- ANÁLISIS IA -->
+<div class="page" id="page-analisis">
+  <div class="ph">
+    <div><div class="ph-eye">Inteligencia empresarial</div><h2>Análisis & Recomendaciones</h2><p>Comparativa mensual y plan de acción</p></div>
+    <div class="ph-acts">
+      <button class="btn btn-neon" onclick="renderAnalisis()">🔄 Actualizar análisis</button>
+    </div>
+  </div>
+
+  <!-- COMPARATIVA MES ACTUAL vs ANTERIOR -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">📊 Comparativa: Este Mes vs Mes Anterior</div>
+    <div class="card-sub">// RENDIMIENTO RELATIVO</div>
+    <div id="analisis-comparativa" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- KPIs DEL MES -->
+  <div class="metrics" style="margin-bottom:16px;" id="analisis-kpis"></div>
+
+  <!-- SALUD DEL NEGOCIO -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">🏥 Salud del Negocio</div>
+    <div class="card-sub">// DIAGNÓSTICO ACTUAL</div>
+    <div id="analisis-salud" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- RECOMENDACIONES -->
+  <div class="card">
+    <div class="card-title">🎯 Plan de Acción Recomendado</div>
+    <div class="card-sub">// MEJORAS PRIORIZADAS SEGÚN TUS DATOS</div>
+    <div id="analisis-recs" style="margin-top:12px;"></div>
+  </div>
+</div>
+
 <div class="page" id="page-educacion">
   <div class="ph">
     <div><div class="ph-eye">Análisis y educación</div><h2>Educación Financiera</h2><p>Conceptos y calculadoras basadas en los datos reales de Fibertel Center</p></div>
@@ -944,7 +1001,7 @@ select option{background:var(--s2);}
         <option value="Sueldo base">Sueldo base</option>
         <option value="Comisión internet">Comisión internet</option>
         <option value="Comisión móvil">Comisión móvil</option>
-        <option value="Bono">Bono especial</option>
+        <option value="Bono especial">Bono especial</option>
         <option value="Adelanto">Adelanto</option>
       </select>
     </div>
@@ -1553,7 +1610,124 @@ function buildMesFiltro(arr,selId,val){
   sel.innerHTML='<option value="">Todos los meses</option>'+keys.map(k=>`<option value="${k}" ${val===k?'selected':''}>${getMesLabel(k)}</option>`).join('');
 }
 
-let vSearch='',vCamp='',vMes='',nomMes='';
+/* ─── GLOBAL MES FILTER ─── */
+let globalMes='';
+function setGlobalMes(val){
+  globalMes=val;
+  vMes=val; nomMes=val;
+  const resEl=document.getElementById('global-mes-resumen');
+  if(val&&resEl){
+    const ing=getIngMes(val),eg=getEgMes(val);
+    resEl.textContent=`Ingresos: S/${ing.toFixed(0)} · Egresos: S/${eg.toFixed(0)} · Balance: S/${(ing-eg).toFixed(0)}`;
+  } else if(resEl){ resEl.textContent=''; }
+  const activePage=document.querySelector('.page.active');
+  if(activePage){
+    const id=activePage.id.replace('page-','');
+    ({dashboard:renderDashboard,ventas:renderVentas,nomina:renderNomina,decomisiones:renderDecomisiones,agentes:renderAgentes,gastos:renderGastos,balance:renderBalance,educacion:renderEducacion,analisis:renderAnalisis})[id]?.();
+  }
+}
+function buildGlobalMesFiltro(){
+  const all=[...ventas,...pagos,...bonos.map(b=>({...b,fecha:b.fecha||today()})),...gastos,...decomisiones];
+  const keys=[...new Set(all.map(x=>getMesKey(x.fecha)))].sort().reverse();
+  const sel=document.getElementById('global-mes');if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">📊 Todos los meses (acumulado)</option>'+keys.map(k=>`<option value="${k}" ${cur===k?'selected':''}>${getMesLabel(k)}</option>`).join('');
+}
+function getVentasMes(mes){return mes?ventas.filter(v=>getMesKey(v.fecha)===mes):ventas;}
+function getPagosMes(mes){return mes?pagos.filter(p=>getMesKey(p.fecha)===mes):pagos;}
+function getBonosMes(mes){return mes?bonos.filter(b=>getMesKey(b.fecha||today())===mes):bonos;}
+function getGastosMes(mes){return mes?gastos.filter(g=>getMesKey(g.fecha)===mes):gastos;}
+function getDecosMes(mes){return mes?decomisiones.filter(d=>getMesKey(d.fecha)===mes):decomisiones;}
+function getIngMes(mes){return getVentasMes(mes).reduce((s,v)=>s+v.comision,0);}
+function getEgMes(mes){return getPagosMes(mes).reduce((s,p)=>s+p.monto,0)+getBonosMes(mes).reduce((s,b)=>s+b.monto,0)+getGastosMes(mes).reduce((s,g)=>s+g.monto,0);}
+
+/* ─── ANÁLISIS ─── */
+function renderAnalisis(){
+  buildGlobalMesFiltro();
+  const now=new Date();
+  const curMes=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const prevDate=new Date(now.getFullYear(),now.getMonth()-1,1);
+  const prevMes=prevDate.getFullYear()+'-'+String(prevDate.getMonth()+1).padStart(2,'0');
+  const ingCur=getIngMes(curMes),egCur=getEgMes(curMes),balCur=ingCur-egCur;
+  const vCur=getVentasMes(curMes),dcCur=getDecosMes(curMes);
+  const ingPrev=getIngMes(prevMes),egPrev=getEgMes(prevMes),balPrev=ingPrev-egPrev;
+  const vPrev=getVentasMes(prevMes),dcPrev=getDecosMes(prevMes);
+  const pct=(a,b)=>b===0?null:((a-b)/b*100);
+  const arrow=(p)=>p===null?'—':p>=0?`▲ +${p.toFixed(1)}%`:`▼ ${p.toFixed(1)}%`;
+  const arrowColor=(p)=>p===null?'var(--txt3)':p>=0?'var(--neon)':'var(--hot)';
+  const metricas=[
+    {label:'Ingresos',cur:ingCur,prev:ingPrev,fmt:true,mejor:'mayor'},
+    {label:'Egresos',cur:egCur,prev:egPrev,fmt:true,mejor:'menor'},
+    {label:'Balance',cur:balCur,prev:balPrev,fmt:true,mejor:'mayor'},
+    {label:'Ventas',cur:vCur.length,prev:vPrev.length,mejor:'mayor'},
+    {label:'Decomisiones',cur:dcCur.length,prev:dcPrev.length,mejor:'menor'},
+  ];
+  document.getElementById('analisis-comparativa').innerHTML=`
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th style="text-align:left;padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">MÉTRICA</th>
+        <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">${getMesLabel(prevMes)}</th>
+        <th style="padding:8px;color:var(--neon);font-size:9px;letter-spacing:2px;">${getMesLabel(curMes)}</th>
+        <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">VARIACIÓN</th>
+        <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">ESTADO</th>
+      </tr></thead>
+      <tbody>${metricas.map(m=>{const p=pct(m.cur,m.prev);const bueno=(m.mejor==='mayor'&&(p===null||p>=0))||(m.mejor==='menor'&&(p===null||p<=0));const estado=m.cur===0&&m.prev===0?'Sin datos':bueno?'✅ Mejora':'⚠️ Atención';return`<tr style="border-bottom:1px solid var(--b1);">
+          <td style="padding:10px 8px;font-weight:600;font-size:12px;">${m.label}</td>
+          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--txt2);">${m.fmt?fmt(m.prev):m.prev}</td>
+          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:var(--neon);">${m.fmt?fmt(m.cur):m.cur}</td>
+          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:${arrowColor(p)};">${arrow(p)}</td>
+          <td style="padding:10px 8px;text-align:center;font-size:11px;text-transform:none;">${estado}</td>
+        </tr>`;}).join('')}</tbody>
+    </table></div>
+    ${ingCur===0&&ingPrev===0?'<div class="empty" style="margin-top:10px;">📋 Registra ventas para ver la comparativa</div>':''}`;
+  const margen=ingCur>0?(balCur/ingCur*100):0;
+  const tasa_deco=vCur.length>0?(dcCur.length/vCur.length*100):0;
+  const com_prom=vCur.length>0?(ingCur/vCur.length):0;
+  document.getElementById('analisis-kpis').innerHTML=[
+    {ico:'💰',lbl:'Ingresos del mes',val:fmt(ingCur),sub:'comisiones cobradas',c:'var(--neon)'},
+    {ico:'📉',lbl:'Egresos del mes',val:fmt(egCur),sub:'nómina + gastos',c:'var(--hot)'},
+    {ico:'📊',lbl:'Margen neto',val:margen.toFixed(1)+'%',sub:margen>=20?'✅ Saludable':margen>=0?'⚠️ Por mejorar':'🔴 Negativo',c:margen>=20?'var(--neon)':margen>=0?'var(--amber)':'var(--hot)'},
+    {ico:'🏆',lbl:'Ventas del mes',val:vCur.length,sub:'contratos cerrados',c:'var(--blue)'},
+    {ico:'⚠️',lbl:'Tasa decomisión',val:tasa_deco.toFixed(1)+'%',sub:tasa_deco<=10?'✅ Controlada':tasa_deco<=20?'⚠️ Revisar':'🔴 Alta',c:tasa_deco<=10?'var(--neon)':tasa_deco<=20?'var(--amber)':'var(--hot)'},
+    {ico:'🎯',lbl:'Comisión promedio',val:fmt(com_prom),sub:'por venta este mes',c:'var(--purple)'},
+  ].map(k=>`<div class="mc" style="cursor:default;"><div class="mc-lbl">${k.lbl}</div><div class="mc-val" style="color:${k.c};font-size:22px;">${k.val}</div><div class="mc-sub" style="text-transform:none;">${k.sub}</div><div class="mc-ico">${k.ico}</div></div>`).join('');
+  const checks=[
+    {label:'Margen neto ≥ 20%',ok:margen>=20,val:`${margen.toFixed(1)}%`,rec:margen<0?'Egresos superan ingresos. Reducir costos es urgente.':margen<20?'Aumenta ventas o reduce gastos para llegar al 20%.':'Excelente margen.'},
+    {label:'Ventas ≥ mes anterior',ok:vCur.length>=vPrev.length,val:`${vCur.length} vs ${vPrev.length}`,rec:vCur.length<vPrev.length?`Caíste ${vPrev.length-vCur.length} ventas. Revisar seguimiento a leads.`:'Crecimiento sostenido.'},
+    {label:'Tasa decomisión ≤ 10%',ok:tasa_deco<=10,val:`${tasa_deco.toFixed(1)}%`,rec:tasa_deco>10?'Revisar calidad de leads y proceso de instalación.':'Cartera bien mantenida.'},
+    {label:'Balance positivo',ok:balCur>=0,val:fmt(balCur),rec:balCur<0?'Gastás más de lo que ingresás. Revisar nómina y gastos.':'El negocio está generando excedente.'},
+    {label:'Egresos ≤ 70% de ingresos',ok:ingCur===0||(egCur/ingCur)<=0.70,val:ingCur>0?`${(egCur/ingCur*100).toFixed(1)}%`:'—',rec:ingCur>0&&egCur/ingCur>0.70?'Estructura de costos pesada. Revisar gastos fijos.':'Estructura de costos saludable.'},
+  ];
+  document.getElementById('analisis-salud').innerHTML=checks.map(c=>`
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--b1);">
+      <div style="font-size:18px;flex-shrink:0;margin-top:2px;">${c.ok?'✅':'⚠️'}</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:3px;">
+          <span style="font-weight:600;font-size:12px;">${c.label}</span>
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:${c.ok?'var(--neon)':'var(--amber)'};">${c.val}</span>
+        </div>
+        <div style="font-size:11px;color:var(--txt2);text-transform:none;letter-spacing:normal;">${c.rec}</div>
+      </div>
+    </div>`).join('');
+  const recs=[];
+  if(balCur<0) recs.push({p:1,ico:'🚨',titulo:'URGENTE: Balance negativo este mes',desc:`Gastás S/${fmt(Math.abs(balCur))} más de lo que ingresás. (1) Congelar gastos no esenciales. (2) Escalonar pagos de nómina. (3) Acelerar cobro de comisiones pendientes.`,color:'var(--hot)'});
+  if(tasa_deco>20) recs.push({p:1,ico:'🚨',titulo:`URGENTE: Tasa de decomisión muy alta (${tasa_deco.toFixed(1)}%)`,desc:'Más de 1 de cada 5 ventas se cancela. Implementar checklist de calificación antes de cerrar contrato y mejorar seguimiento post-instalación.',color:'var(--hot)'});
+  if(vCur.length<vPrev.length&&vPrev.length>0) recs.push({p:2,ico:'⚠️',titulo:`Caída de ${vPrev.length-vCur.length} ventas vs mes anterior`,desc:`${vPrev.length} ventas el mes pasado vs ${vCur.length} este mes. Revisar pipeline de leads, motivación del equipo y si hubo cambios en campañas activas.`,color:'var(--amber)'});
+  if(margen>=0&&margen<20&&ingCur>0) recs.push({p:2,ico:'⚠️',titulo:`Margen del ${margen.toFixed(1)}% — objetivo ≥ 20%`,desc:`Necesitás ganar S/${fmt(ingCur*0.20-balCur)} más (o gastar esa cifra menos) para llegar al margen saludable. Apuntar a productos de mayor comisión o reducir gastos operativos.`,color:'var(--amber)'});
+  if(ingCur>0&&egCur/ingCur>0.70) recs.push({p:2,ico:'📊',titulo:`Egresos al ${(egCur/ingCur*100).toFixed(0)}% de ingresos`,desc:`Por cada S/100 que ingresa, S/${(egCur/ingCur*100).toFixed(0)} se va en costos. Revisar si la nómina está alineada con la producción y si hay gastos recurrentes que se puedan negociar.`,color:'var(--amber)'});
+  if(vCur.length>=vPrev.length&&margen>=20&&balCur>0) recs.push({p:3,ico:'🚀',titulo:'Mes sólido — momento de escalar',desc:`${vCur.length} ventas y margen del ${margen.toFixed(1)}%. Ahora: (1) Establecer meta más alta para el próximo mes. (2) Evaluar incorporar un agente más. (3) Alimentar fondo de reserva anti-decomisiones (recomendado: ${fmt(ingCur*0.20)}).`,color:'var(--neon)'});
+  const agRanking=agentes.map(ag=>{const aVentas=getVentasMes(curMes).filter(v=>v.agenteId===ag.id);return{ag,ventas:aVentas.length};}).sort((a,b)=>b.ventas-a.ventas);
+  if(agRanking.length>1){const top=agRanking[0],bot=agRanking[agRanking.length-1];if(top.ventas>0&&bot.ventas<top.ventas*0.5) recs.push({p:3,ico:'👥',titulo:`Brecha de rendimiento: ${top.ag.nombre} lidera con ${top.ventas} vs ${bot.ventas} de ${bot.ag.nombre}`,desc:`Considera que ${top.ag.nombre} comparta sus técnicas con el equipo. Una reunión semanal de casos exitosos puede elevar el rendimiento promedio.`,color:'var(--blue)'});}
+  if(recs.length===0) recs.push({p:3,ico:'📋',titulo:'Registra más datos para obtener recomendaciones',desc:'A medida que cargues ventas, gastos y pagos, este panel generará un plan de acción específico para tu negocio.',color:'var(--txt3)'});
+  recs.sort((a,b)=>a.p-b.p);
+  document.getElementById('analisis-recs').innerHTML=recs.map(r=>`
+    <div style="display:flex;gap:14px;padding:16px;border-radius:12px;background:var(--s2);border:1px solid ${r.color}33;margin-bottom:10px;">
+      <div style="font-size:24px;flex-shrink:0;">${r.ico}</div>
+      <div><div style="font-weight:700;font-size:12.5px;color:${r.color};margin-bottom:5px;text-transform:none;letter-spacing:normal;">${r.titulo}</div>
+      <div style="font-size:11.5px;color:var(--txt2);line-height:1.6;text-transform:none;letter-spacing:normal;">${r.desc}</div></div>
+    </div>`).join('');
+}
 function riskLevel(m){
   if(m>=6) return{label:'Consolidada ✓',cls:'pill-g',color:'var(--neon)'};
   if(m>=4) return{label:(6-m)+' mes(es) riesgo',cls:'pill-a',color:'var(--amber)'};
@@ -1602,7 +1776,7 @@ function showPage(id,el){
   document.getElementById('page-'+id).classList.add('active');
   if(el) el.classList.add('active');
   else document.querySelectorAll('.ni').forEach(n=>{if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+id+"'"))n.classList.add('active');});
-  ({dashboard:renderDashboard,ventas:renderVentas,nomina:renderNomina,decomisiones:renderDecomisiones,agentes:renderAgentes,gastos:renderGastos,balance:renderBalance,educacion:renderEducacion})[id]?.();
+  ({dashboard:renderDashboard,ventas:renderVentas,nomina:renderNomina,decomisiones:renderDecomisiones,agentes:renderAgentes,gastos:renderGastos,balance:renderBalance,educacion:renderEducacion,analisis:renderAnalisis})[id]?.();
   // Cerrar sidebar en móvil al navegar
   if(window.innerWidth<=768) closeSidebar();
 }
@@ -1627,13 +1801,17 @@ function updateSalaryWidgets(){
 
 /* ─── DASHBOARD ─── */
 function renderDashboard(){
-  const com=totalCom(),eg=totalEg(),bal=balNeto(),risk=riesgoAct(),margen=com>0?(bal/com*100):0;
+  buildGlobalMesFiltro();
+  const vF=getVentasMes(globalMes), pgF=getPagosMes(globalMes), bnF=getBonosMes(globalMes), gsF=getGastosMes(globalMes), dcF=getDecosMes(globalMes);
+  const com=vF.reduce((s,v)=>s+v.comision,0);
+  const eg=pgF.reduce((s,p)=>s+p.monto,0)+bnF.reduce((s,b)=>s+b.monto,0)+gsF.reduce((s,g)=>s+g.monto,0);
+  const bal=com-eg, risk=riesgoAct(), margen=com>0?(bal/com*100):0;
   document.getElementById('d-com').textContent=fmt(com);
   document.getElementById('d-eg').textContent=fmt(eg);
   document.getElementById('d-bal').textContent=fmt(bal);
   document.getElementById('d-bal').style.color=bal>=0?'var(--neon)':'var(--hot)';
   document.getElementById('d-risk').textContent=fmt(risk);
-  document.getElementById('d-vs').textContent=ventas.length;
+  document.getElementById('d-vs').textContent=vF.length;
   document.getElementById('d-ag').textContent=agentes.length;
   document.getElementById('d-margen').textContent=margen.toFixed(1)+'%';
   document.getElementById('d-margen').style.color=margen>=20?'var(--neon)':margen>=0?'var(--amber)':'var(--hot)';
@@ -1641,7 +1819,7 @@ function renderDashboard(){
   document.getElementById('risk-count').textContent=ventas.filter(v=>!decomisiones.find(d=>d.ventaId===v.id)&&monthsAgo(v.fecha)<6).length+' ventas < 6 meses';
   document.getElementById('v-badge').textContent=ventas.length;
   document.getElementById('dc-badge').textContent=decomisiones.length;
-  document.getElementById('dash-fecha').textContent=new Date().toLocaleDateString('es-PE',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  document.getElementById('dash-fecha').textContent=globalMes?'Período: '+getMesLabel(globalMes):new Date().toLocaleDateString('es-PE',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   updateSalaryWidgets();
 
   dc('flow');
