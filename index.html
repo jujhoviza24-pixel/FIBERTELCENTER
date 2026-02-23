@@ -375,6 +375,17 @@ select option{background:var(--s2);}
 <!-- OVERLAY para cerrar sidebar tocando fuera -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
+<!-- SYNC OVERLAY — pantalla de carga al sincronizar -->
+<div id="sync-overlay" style="
+  display:none;position:fixed;inset:0;z-index:5000;
+  background:rgba(4,6,15,0.92);backdrop-filter:blur(12px);
+  flex-direction:column;align-items:center;justify-content:center;gap:18px;">
+  <div style="width:54px;height:54px;border-radius:50%;border:3px solid rgba(0,255,225,0.15);border-top-color:var(--neon);animation:spin .8s linear infinite;"></div>
+  <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--neon);letter-spacing:3px;text-transform:uppercase;" id="sync-overlay-txt">Sincronizando...</div>
+  <div style="font-size:11px;color:var(--txt3);text-transform:none;letter-spacing:normal;">Cargando tus datos desde Google Sheets</div>
+  <button onclick="hideSyncOverlay()" style="margin-top:10px;background:transparent;border:1px solid var(--b2);color:var(--txt3);padding:7px 18px;border-radius:8px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;">Saltar (usar datos locales)</button>
+</div>
+
 <!-- LOGIN -->
 <div id="login-screen">
 <div class="lbox">
@@ -1269,9 +1280,17 @@ const GS = {
   async _req(params){
     try{
       const qs=Object.entries(params).map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):String(v))).join('&');
-      const r=await fetch(this.url+'?'+qs,{redirect:'follow'});
+      // Timeout de 12 segundos para que no quede colgado
+      const controller = new AbortController();
+      const timer = setTimeout(()=>controller.abort(), 12000);
+      const r=await fetch(this.url+'?'+qs,{redirect:'follow', signal:controller.signal});
+      clearTimeout(timer);
       return JSON.parse(await r.text());
-    }catch(e){console.warn('GS error:',e.message);return null;}
+    }catch(e){
+      if(e.name==='AbortError') console.warn('GS timeout — sin respuesta en 12s');
+      else console.warn('GS error:',e.message);
+      return null;
+    }
   },
   async ping(){ return await this._req({action:'ping'}); },
   async push(data){ return await this._req({action:'push',data:JSON.stringify(data)}); },
@@ -1532,6 +1551,16 @@ function mTotals(arr,field,n){const now=new Date();return Array.from({length:n},
 const chartOpts=(ycb)=>({plugins:{legend:{labels:{color:'#8898c0',font:{size:10,family:'DM Sans'}}}},scales:{x:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9}},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}},y:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9},callback:ycb||((v)=>'S/'+fmtN(v))},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}}}});
 
 /* ─── MOBILE SIDEBAR ─── */
+function showSyncOverlay(txt){
+  const el=document.getElementById('sync-overlay');
+  const txtEl=document.getElementById('sync-overlay-txt');
+  if(txtEl) txtEl.textContent=txt||'Sincronizando...';
+  if(el) el.style.display='flex';
+}
+function hideSyncOverlay(){
+  const el=document.getElementById('sync-overlay');
+  if(el) el.style.display='none';
+}
 function toggleSidebar(){
   const sb=document.getElementById('sidebar');
   const ov=document.getElementById('sidebar-overlay');
@@ -2057,27 +2086,19 @@ function enterApp(u){
   setUser(u);
   document.getElementById('sb-avatar').textContent=(u.fullname||u.username).slice(0,2).toUpperCase();
   document.getElementById('sb-uname').textContent=u.fullname||u.username;
-  loadAll(); // carga local primero (para modo offline)
+  loadAll();
   const sc=document.getElementById('login-screen');
   sc.classList.add('hiding');
   setTimeout(async ()=>{
     sc.classList.add('hidden');
     updateGSUI();
+    renderDashboard();
     if(GS.enabled){
-      // Pantalla de carga mientras jalamos Sheets
-      document.getElementById('page-dashboard').innerHTML=`
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:18px;">
-          <div style="width:52px;height:52px;border-radius:50%;border:3px solid rgba(0,255,225,0.2);border-top-color:var(--neon);animation:spin .8s linear infinite;"></div>
-          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;text-transform:uppercase;">Cargando datos desde Sheets...</div>
-          <div style="font-size:11px;color:var(--txt3);text-transform:none;">Esto puede tardar unos segundos</div>
-        </div>`;
-      document.getElementById('page-dashboard').classList.add('active');
+      showSyncOverlay('Cargando datos desde Sheets...');
       await syncNow();
-      // Reconstruir el dashboard después de la carga
-      document.getElementById('page-dashboard').innerHTML=getDashboardHTML();
+      hideSyncOverlay();
       renderDashboard();
     } else {
-      renderDashboard();
       toast('👋 Bienvenido, '+(u.fullname||u.username).split(' ')[0]+'!','ok');
     }
   },500);
@@ -2103,14 +2124,11 @@ function findRecoverUser(){const email=document.getElementById('rec-email').valu
 function confirmRecover(email){const np=document.getElementById('rec-newpass').value;const np2=document.getElementById('rec-newpass2').value;const err=document.getElementById('rec-error');err.classList.remove('show');if(np.length<6){err.textContent='⚠ Mínimo 6 caracteres';err.classList.add('show');return;}if(np!==np2){err.textContent='⚠ Las contraseñas no coinciden';err.classList.add('show');return;}const users=getUsers();const idx=users.findIndex(u=>u.email===email);users[idx].password=np;saveUsers(users);closeM('modal-recover');toast('✅ Contraseña actualizada','ok');}
 
 /* ─── INIT ─── */
-// El HTML del dashboard se guarda para poder reconstruirlo tras la carga de Sheets
-function getDashboardHTML(){ return document.getElementById('page-dashboard').innerHTML; }
-let _dashHTML = '';
-
 (function(){
   const u=getUser();
   if(u){
-    const users=getUsers();const v=users.find(x=>x.username===u.username);
+    const users=getUsers();
+    const v=users.find(x=>x.username===u.username);
     if(v){
       const sc=document.getElementById('login-screen');
       sc.style.opacity='0';sc.style.transition='none';
@@ -2120,20 +2138,11 @@ let _dashHTML = '';
         sc.classList.add('hidden');sc.style.opacity='';sc.style.transition='';
         loadAll();
         updateGSUI();
+        renderDashboard();
         if(GS.enabled){
-          // Guarda HTML original del dashboard
-          _dashHTML = document.getElementById('page-dashboard').innerHTML;
-          document.getElementById('page-dashboard').innerHTML=`
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:18px;">
-              <div style="width:52px;height:52px;border-radius:50%;border:3px solid rgba(0,255,225,0.2);border-top-color:var(--neon);animation:spin .8s linear infinite;"></div>
-              <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;text-transform:uppercase;">Sincronizando con Sheets...</div>
-              <div style="font-size:11px;color:var(--txt3);text-transform:none;">Cargando tus datos</div>
-            </div>`;
-          document.getElementById('page-dashboard').classList.add('active');
+          showSyncOverlay('Sincronizando con Sheets...');
           await syncNow();
-          document.getElementById('page-dashboard').innerHTML=_dashHTML;
-          renderDashboard();
-        } else {
+          hideSyncOverlay();
           renderDashboard();
         }
       },30);
