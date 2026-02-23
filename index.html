@@ -591,6 +591,7 @@ select option{background:var(--s2);}
     <div class="ph-acts">
       <button class="btn btn-ghost" onclick="openModalP()">+ Registrar pago</button>
       <button class="btn btn-green" onclick="openModalB()">+ Bono</button>
+      <button class="btn btn-hot" onclick="openModalDesc()">− Descuento</button>
     </div>
   </div>
   <div class="charts2">
@@ -603,7 +604,17 @@ select option{background:var(--s2);}
   </div>
   <div class="tcard">
     <div class="tbar"><div class="tbar-title">Detalle por Agente</div></div>
-    <table><thead><tr><th>Agente</th><th>Sueldo base</th><th>Com. internet</th><th>Com. móvil</th><th>Bonos</th><th>Adelantos</th><th>Total neto</th></tr></thead><tbody id="nom-table"></tbody></table>
+    <table><thead><tr><th>Agente</th><th>Sueldo base</th><th>Com. internet</th><th>Com. móvil</th><th>Bonos</th><th>Adelantos</th><th style="color:var(--hot)">Descuentos</th><th style="color:var(--neon)">Total neto</th></tr></thead><tbody id="nom-table"></tbody></table>
+  </div>
+  <div class="tcard">
+    <div class="tbar">
+      <div class="tbar-title">Descuentos del Mes</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-size:9px;color:var(--hot);font-family:'DM Mono',monospace;" id="desc-total-lbl">Total: S/ 0</div>
+        <button class="btn btn-hot btn-sm" onclick="openModalDesc()">− Nuevo descuento</button>
+      </div>
+    </div>
+    <table><thead><tr><th>Fecha</th><th>Agente</th><th>Tipo</th><th>Monto</th><th>Detalle</th><th></th></tr></thead><tbody id="desc-table"></tbody></table>
   </div>
   <div class="tcard">
     <div class="tbar"><div class="tbar-title">Historial de Pagos</div></div>
@@ -929,6 +940,47 @@ select option{background:var(--s2);}
 </div>
 </div>
 
+<!-- MODAL DESCUENTO -->
+<div class="modal-overlay" id="modal-descuento">
+<div class="modal">
+  <div class="modal-x" onclick="closeModals()">✕</div>
+  <div class="modal-title" style="color:var(--hot);">− Registrar Descuento</div>
+  <div class="modal-sub">Descuentos por faltas, tardanzas, decomisiones u otros motivos</div>
+  <div class="frow">
+    <div class="fg"><label>Agente</label><select id="desc-agente"></select></div>
+    <div class="fg"><label>Fecha</label><input type="date" id="desc-fecha"></div>
+  </div>
+  <div class="fg"><label>Tipo de descuento</label>
+    <select id="desc-tipo" onchange="updateDescPlaceholder()">
+      <option value="Falta injustificada">❌ Falta injustificada</option>
+      <option value="Tardanza">⏰ Tardanza</option>
+      <option value="Decomisión descontada">📉 Decomisión descontada</option>
+      <option value="Préstamo / Adelanto">💵 Préstamo / Adelanto</option>
+      <option value="Error operativo">⚠️ Error operativo</option>
+      <option value="Otro">📋 Otro</option>
+    </select>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Monto a descontar (S/)</label><input type="number" id="desc-monto" placeholder="0.00" step="0.01"></div>
+    <div class="fg"><label>Cantidad <span id="desc-cant-lbl" style="color:var(--txt3);font-size:9px;">(faltas / minutos)</span></label><input type="number" id="desc-cant" placeholder="1" min="1"></div>
+  </div>
+  <div class="fg"><label>Detalle / Observación</label><input type="text" id="desc-detalle" placeholder="Ej: Falta del lunes 12/02, sin aviso"></div>
+  <!-- Calculadora rápida -->
+  <div style="background:var(--s2);border:1px solid var(--b1);border-radius:11px;padding:12px;margin-top:4px;">
+    <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--txt3);font-family:'DM Mono',monospace;margin-bottom:8px;">Calculadora rápida</div>
+    <div class="frow">
+      <div class="fg" style="margin:0;"><label>Sueldo diario (S/)</label><input type="number" id="calc-diario" placeholder="Ej: 60" oninput="calcDescuento()"></div>
+      <div class="fg" style="margin:0;"><label>Días / Minutos</label><input type="number" id="calc-cant" placeholder="1" oninput="calcDescuento()"></div>
+    </div>
+    <div id="calc-result" style="margin-top:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--neon);display:none;padding:6px 10px;background:rgba(0,255,225,0.05);border-radius:7px;"></div>
+  </div>
+  <div class="macts">
+    <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+    <button class="btn btn-hot" onclick="saveDescuento()">Registrar descuento</button>
+  </div>
+</div>
+</div>
+
 <!-- MODAL DECOMISIÓN -->
 <div class="modal-overlay" id="modal-decomision">
 <div class="modal">
@@ -1191,10 +1243,10 @@ function sk(k){const u=getUser();return'fc_biz_'+(u?u.username:'g')+'_'+k;}
 function ld(k,fb){try{const r=localStorage.getItem(sk(k));return r?JSON.parse(r):fb;}catch(e){return fb;}}
 function sd(k,v){try{localStorage.setItem(sk(k),JSON.stringify(v));}catch(e){}}
 
-let agentes=[],ventas=[],pagos=[],bonos=[],gastos=[],decomisiones=[];
-function loadAll(){agentes=ld('ag',[]);ventas=ld('vs',[]);pagos=ld('pg',[]);bonos=ld('bn',[]);gastos=ld('gs',[]);decomisiones=ld('dc',[]);}
+let agentes=[],ventas=[],pagos=[],bonos=[],gastos=[],decomisiones=[],descuentos=[];
+function loadAll(){agentes=ld('ag',[]);ventas=ld('vs',[]);pagos=ld('pg',[]);bonos=ld('bn',[]);gastos=ld('gs',[]);decomisiones=ld('dc',[]);descuentos=ld('des',[]);}
 function saveAll(){
-  sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);
+  sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
   if(GS.enabled) scheduleSyncToSheets();
 }
 
@@ -1222,7 +1274,7 @@ function scheduleSyncToSheets(){
 async function syncToSheets(){
   if(!GS.enabled) return;
   setGSStatus('syncing');
-  const data={agentes,ventas,pagos,bonos,gastos,decomisiones};
+  const data={agentes,ventas,pagos,bonos,gastos,decomisiones,descuentos};
   const r=await GS.push(data);
   if(r&&r.ok){setGSStatus('ok');toast('☁️ Datos guardados en Sheets','ok');}
   else{setGSStatus('error');console.warn('GS push failed');}
@@ -1523,27 +1575,51 @@ function delVenta(id){if(!confirm('¿Eliminar esta venta?'))return;ventas=ventas
 /* ─── NÓMINA ─── */
 let nomChart=null;
 function renderNomina(){
-  buildSel('p-agente');buildSel('b-agente');
+  buildSel('p-agente');buildSel('b-agente');buildSel('desc-agente');
   const agD=agentes.map(ag=>{
     const apg=pagos.filter(p=>p.agenteId===ag.id);const abn=bonos.filter(b=>b.agenteId===ag.id);
+    const ades=descuentos.filter(d=>d.agenteId===ag.id);
     const base=apg.filter(p=>p.tipo==='Sueldo base').reduce((s,p)=>s+p.monto,0);
     const cInt=apg.filter(p=>p.tipo==='Comisión internet').reduce((s,p)=>s+p.monto,0);
     const cMov=apg.filter(p=>p.tipo==='Comisión móvil').reduce((s,p)=>s+p.monto,0);
-    const bns=abn.reduce((s,b)=>s+b.monto,0);const adl=apg.filter(p=>p.tipo==='Adelanto').reduce((s,p)=>s+p.monto,0);
-    return{ag,base,cInt,cMov,bns,adl,total:base+cInt+cMov+bns};
+    const bns=abn.reduce((s,b)=>s+b.monto,0);
+    const adl=apg.filter(p=>p.tipo==='Adelanto').reduce((s,p)=>s+p.monto,0);
+    const des=ades.reduce((s,d)=>s+d.monto,0);
+    return{ag,base,cInt,cMov,bns,adl,des,total:base+cInt+cMov+bns-des};
   });
-  const tBase=agD.reduce((s,d)=>s+d.base,0),tCom=agD.reduce((s,d)=>s+d.cInt+d.cMov,0),tBon=agD.reduce((s,d)=>s+d.bns,0),grand=tBase+tCom+tBon;
+  const tBase=agD.reduce((s,d)=>s+d.base,0),tCom=agD.reduce((s,d)=>s+d.cInt+d.cMov,0),tBon=agD.reduce((s,d)=>s+d.bns,0),tDes=agD.reduce((s,d)=>s+d.des,0),grand=tBase+tCom+tBon-tDes;
   document.getElementById('nom-total').textContent=fmt(grand);
-  document.getElementById('nom-breakdown').innerHTML=[{l:'Sueldos base',v:tBase,c:'var(--blue)'},{l:'Comisiones',v:tCom,c:'var(--neon)'},{l:'Bonos',v:tBon,c:'var(--amber)'}].map(r=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--b1);font-size:11.5px;text-transform:none;letter-spacing:normal;"><span style="color:var(--txt2);">${r.l}</span><span style="font-family:'DM Mono',monospace;font-weight:700;color:${r.c};">${fmt(r.v)}</span></div>`).join('');
+  document.getElementById('nom-breakdown').innerHTML=[
+    {l:'Sueldos base',v:tBase,c:'var(--blue)'},
+    {l:'Comisiones',v:tCom,c:'var(--neon)'},
+    {l:'Bonos',v:tBon,c:'var(--amber)'},
+    {l:'Descuentos',v:-tDes,c:'var(--hot)'}
+  ].map(r=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--b1);font-size:11.5px;text-transform:none;letter-spacing:normal;"><span style="color:var(--txt2);">${r.l}</span><span style="font-family:'DM Mono',monospace;font-weight:700;color:${r.c};">${r.v<0?'− '+fmt(Math.abs(r.v)):fmt(r.v)}</span></div>`).join('');
   if(nomChart) nomChart.destroy();
-  if(tBase+tCom+tBon>0){nomChart=new Chart(document.getElementById('nominaChart').getContext('2d'),{type:'doughnut',data:{labels:['Sueldos','Comisiones','Bonos'],datasets:[{data:[tBase,tCom,tBon],backgroundColor:['rgba(77,166,255,.7)','rgba(0,255,225,.7)','rgba(255,176,32,.7)'],borderWidth:0}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10},padding:6,boxWidth:8}}},cutout:'62%'}});}
-  if(!agentes.length){document.getElementById('nom-table').innerHTML='<tr><td colspan="7"><div class="empty">👥 Sin agentes — agrega agentes primero</div></td></tr>';return;}
+  if(tBase+tCom+tBon>0){nomChart=new Chart(document.getElementById('nominaChart').getContext('2d'),{type:'doughnut',data:{labels:['Sueldos','Comisiones','Bonos','Descuentos'],datasets:[{data:[tBase,tCom,tBon,tDes],backgroundColor:['rgba(77,166,255,.7)','rgba(0,255,225,.7)','rgba(255,176,32,.7)','rgba(255,45,110,.7)'],borderWidth:0}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10},padding:6,boxWidth:8}}},cutout:'62%'}});}
+  if(!agentes.length){document.getElementById('nom-table').innerHTML='<tr><td colspan="8"><div class="empty">👥 Sin agentes — agrega agentes primero</div></td></tr>';return;}
   document.getElementById('nom-table').innerHTML=agD.map(d=>`<tr>
     <td><div class="ar"><div class="av" style="background:${d.ag.color};width:26px;height:26px;font-size:10px;">${d.ag.nombre.slice(0,2).toUpperCase()}</div><span style="font-weight:600;">${d.ag.nombre}</span></div></td>
-    <td style="font-family:'DM Mono',monospace;">${fmt(d.base)}</td><td style="font-family:'DM Mono',monospace;color:var(--neon);">${fmt(d.cInt)}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--cyan);">${fmt(d.cMov)}</td><td style="font-family:'DM Mono',monospace;color:var(--amber);">${fmt(d.bns)}</td>
+    <td style="font-family:'DM Mono',monospace;">${fmt(d.base)}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--neon);">${fmt(d.cInt)}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--cyan);">${fmt(d.cMov)}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--amber);">${fmt(d.bns)}</td>
     <td style="font-family:'DM Mono',monospace;color:var(--txt2);">${fmt(d.adl)}</td>
-    <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--hot);">${fmt(d.total)}</td></tr>`).join('');
+    <td style="font-family:'DM Mono',monospace;color:var(--hot);font-weight:700;">${d.des>0?'− '+fmt(d.des):'—'}</td>
+    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${d.total>=0?'var(--neon)':'var(--hot)'};">${fmt(d.total)}</td></tr>`).join('');
+
+  // Tabla de descuentos
+  const totalDesc=descuentos.reduce((s,d)=>s+d.monto,0);
+  document.getElementById('desc-total-lbl').textContent='Total: '+fmt(totalDesc);
+  const TIPO_ICONS={'Falta injustificada':'❌','Tardanza':'⏰','Decomisión descontada':'📉','Préstamo / Adelanto':'💵','Error operativo':'⚠️','Otro':'📋'};
+  document.getElementById('desc-table').innerHTML=descuentos.length?[...descuentos].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(d=>{const ag=getAg(d.agenteId);return`<tr>
+    <td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${d.fecha}</td>
+    <td><div class="ar"><div class="av" style="background:${ag.color};width:24px;height:24px;font-size:9px;">${ag.nombre.slice(0,2).toUpperCase()}</div>${ag.nombre}</div></td>
+    <td><span class="pill pill-r">${TIPO_ICONS[d.tipo]||'📋'} ${d.tipo}</span></td>
+    <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--hot);">− ${fmt(d.monto)}</td>
+    <td style="color:var(--txt2);font-size:11px;text-transform:none;">${d.detalle||'—'}${d.cantidad>1?' (×'+d.cantidad+')':''}</td>
+    <td><button class="db" onclick="delDescuento(${d.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">✅ Sin descuentos registrados este mes</div></td></tr>';
+
   const allPag=[...pagos,...bonos.map(b=>({...b,tipo:'Bono'}))].sort((a,b)=>new Date(b.fecha||today())-new Date(a.fecha||today()));
   document.getElementById('pagos-table').innerHTML=allPag.length?allPag.map(p=>{const ag=getAg(p.agenteId);return`<tr>
     <td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${p.fecha||'—'}</td>
@@ -1554,6 +1630,68 @@ function renderNomina(){
     <td><button class="db" onclick="delPago(${p.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">Sin pagos registrados</div></td></tr>';
 }
 function delPago(id){pagos=pagos.filter(p=>p.id!==id);bonos=bonos.filter(b=>b.id!==id);saveAll();renderNomina();toast('🗑️ Pago eliminado');}
+function delDescuento(id){if(!confirm('¿Eliminar este descuento?'))return;descuentos=descuentos.filter(d=>d.id!==id);saveAll();renderNomina();toast('🗑️ Descuento eliminado');}
+
+/* ─── DESCUENTO MODAL HELPERS ─── */
+function updateDescPlaceholder(){
+  const tipo=document.getElementById('desc-tipo').value;
+  const lbl=document.getElementById('desc-cant-lbl');
+  const cantInput=document.getElementById('desc-cant');
+  if(tipo==='Tardanza'){lbl.textContent='(minutos tarde)';cantInput.placeholder='30';}
+  else if(tipo==='Falta injustificada'){lbl.textContent='(cantidad de faltas)';cantInput.placeholder='1';}
+  else{lbl.textContent='(cantidad)';cantInput.placeholder='1';}
+  calcDescuento();
+}
+function calcDescuento(){
+  const diario=parseFloat(document.getElementById('calc-diario').value)||0;
+  const cant=parseFloat(document.getElementById('calc-cant').value)||0;
+  const tipo=document.getElementById('desc-tipo').value;
+  const res=document.getElementById('calc-result');
+  if(!diario||!cant){res.style.display='none';return;}
+  let monto=0,detalle='';
+  if(tipo==='Tardanza'){
+    // tardanza: proporción por hora (sueldo diario / 8 horas / 60 min)
+    const porMin=diario/8/60;
+    monto=porMin*cant;
+    detalle=`${cant} min × S/${(porMin).toFixed(2)}/min = S/${monto.toFixed(2)}`;
+  } else {
+    monto=diario*cant;
+    detalle=`${cant} día(s) × S/${diario.toFixed(2)} = S/${monto.toFixed(2)}`;
+  }
+  res.style.display='block';
+  res.innerHTML=`💡 Descuento calculado: <strong style="color:var(--hot);">S/ ${monto.toFixed(2)}</strong><br><span style="font-size:10px;opacity:.7;">${detalle}</span>`;
+  // Auto-rellenar el campo monto
+  document.getElementById('desc-monto').value=monto.toFixed(2);
+}
+function openModalDesc(){
+  buildSel('desc-agente');
+  document.getElementById('desc-fecha').value=today();
+  document.getElementById('desc-monto').value='';
+  document.getElementById('desc-cant').value='1';
+  document.getElementById('desc-detalle').value='';
+  document.getElementById('calc-diario').value='';
+  document.getElementById('calc-cant').value='';
+  document.getElementById('calc-result').style.display='none';
+  updateDescPlaceholder();
+  openM('modal-descuento');
+}
+function saveDescuento(){
+  const ag=document.getElementById('desc-agente').value;
+  const m=parseFloat(document.getElementById('desc-monto').value);
+  const tipo=document.getElementById('desc-tipo').value;
+  if(!ag||!m){toast('⚠️ Selecciona agente y monto');return;}
+  descuentos.push({
+    id:Date.now(),
+    agenteId:parseInt(ag),
+    fecha:document.getElementById('desc-fecha').value,
+    tipo,
+    monto:m,
+    cantidad:parseInt(document.getElementById('desc-cant').value)||1,
+    detalle:document.getElementById('desc-detalle').value
+  });
+  saveAll();closeModals();renderNomina();
+  toast('📉 Descuento registrado — '+fmt(m),'warn');
+}
 
 /* ─── DECOMISIONES ─── */
 function renderDecomisiones(){
