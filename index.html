@@ -583,9 +583,10 @@ select option{background:var(--s2);}
   </div>
   <div class="tcard">
     <div class="tbar">
-      <div style="display:flex;gap:7px;">
-        <input style="width:190px;padding:6px 11px;border-radius:8px;font-size:11.5px;" type="text" placeholder="⌕ Buscar..." oninput="filterVentas(this.value)">
-        <select style="padding:6px 11px;border-radius:8px;font-size:11.5px;width:150px;" id="v-camp-filter" onchange="filterVentasCamp(this.value)"><option value="">Todas las campañas</option></select>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;">
+        <input style="width:160px;padding:6px 11px;border-radius:8px;font-size:11.5px;" type="text" placeholder="⌕ Buscar..." oninput="filterVentas(this.value)">
+        <select style="padding:6px 11px;border-radius:8px;font-size:11.5px;" id="v-camp-filter" onchange="filterVentasCamp(this.value)"><option value="">Todas las campañas</option></select>
+        <select style="padding:6px 11px;border-radius:8px;font-size:11.5px;" id="v-mes-filter" onchange="filterVentasMes(this.value)"><option value="">Todos los meses</option></select>
       </div>
       <div style="font-size:9px;color:var(--txt3);font-family:'DM Mono',monospace;" id="v-count">0 ventas</div>
     </div>
@@ -593,11 +594,37 @@ select option{background:var(--s2);}
   </div>
 </div>
 
+<!-- MODAL EDITAR VENTA -->
+<div class="modal-overlay" id="modal-edit-venta">
+<div class="modal">
+  <div class="modal-x" onclick="closeModals()">✕</div>
+  <div class="modal-title">✏️ Editar Venta</div>
+  <input type="hidden" id="ev-id">
+  <div class="frow">
+    <div class="fg"><label>Agente</label><select id="ev-agente"></select></div>
+    <div class="fg"><label>Fecha</label><input type="date" id="ev-fecha"></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Campaña</label><input type="text" id="ev-campana" placeholder="Internet / Móvil..."></div>
+    <div class="fg"><label>Producto</label><input type="text" id="ev-producto" placeholder="Pack Fibra 100..."></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Cliente</label><input type="text" id="ev-cliente" placeholder="Nombre del cliente"></div>
+    <div class="fg"><label>Comisión (S/)</label><input type="number" id="ev-comision" placeholder="0.00"></div>
+  </div>
+  <div class="macts">
+    <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+    <button class="btn btn-neon" onclick="saveEditVenta()">Guardar cambios</button>
+  </div>
+</div>
+</div>
+
 <!-- NÓMINA -->
 <div class="page" id="page-nomina">
   <div class="ph">
     <div><div class="ph-eye">Gestión de personal</div><h2>Nómina & Sueldos</h2><p>Sueldos, comisiones y bonos del equipo</p></div>
-    <div class="ph-acts">
+    <div class="ph-acts" style="flex-wrap:wrap;gap:7px;">
+      <select style="padding:6px 11px;border-radius:8px;font-size:11.5px;" id="nom-mes-filter" onchange="filterNominaMes(this.value)"><option value="">Todos los meses</option></select>
       <button class="btn btn-ghost" onclick="openModalP()">+ Registrar pago</button>
       <button class="btn btn-green" onclick="openModalB()">+ Bono</button>
       <button class="btn btn-hot" onclick="openModalDesc()">− Descuento</button>
@@ -1516,6 +1543,17 @@ const balNeto=()=>totalCom()-totalEg();
 const riesgoAct=()=>ventas.filter(v=>!decomisiones.find(d=>d.ventaId===v.id)&&monthsAgo(v.fecha)<6).reduce((s,v)=>s+v.comision,0);
 const ventasSafe=()=>ventas.filter(v=>monthsAgo(v.fecha)>=6).length;
 const getAg=id=>agentes.find(a=>a.id===id)||{nombre:'Desconocido',color:'#555'};
+
+// Helpers para filtro por mes
+function getMesKey(fecha){const d=new Date(fecha||today());return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function getMesLabel(key){const [y,m]=key.split('-');const MESES=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];return MESES[parseInt(m)]+' '+y;}
+function buildMesFiltro(arr,selId,val){
+  const keys=[...new Set(arr.map(x=>getMesKey(x.fecha||today())))].sort().reverse();
+  const sel=document.getElementById(selId);if(!sel)return;
+  sel.innerHTML='<option value="">Todos los meses</option>'+keys.map(k=>`<option value="${k}" ${val===k?'selected':''}>${getMesLabel(k)}</option>`).join('');
+}
+
+let vSearch='',vCamp='',vMes='',nomMes='';
 function riskLevel(m){
   if(m>=6) return{label:'Consolidada ✓',cls:'pill-g',color:'var(--neon)'};
   if(m>=4) return{label:(6-m)+' mes(es) riesgo',cls:'pill-a',color:'var(--amber)'};
@@ -1627,18 +1665,19 @@ function renderDashboard(){
 }
 
 /* ─── VENTAS ─── */
-let vSearch='',vCamp='';
 function renderVentas(){
   buildSel('v-agente');
+  buildMesFiltro(ventas,'v-mes-filter',vMes);
   let list=[...ventas];
   if(vSearch) list=list.filter(v=>v.cliente?.toLowerCase().includes(vSearch)||getAg(v.agenteId).nombre.toLowerCase().includes(vSearch)||v.campana.toLowerCase().includes(vSearch));
   if(vCamp) list=list.filter(v=>v.campana===vCamp);
+  if(vMes) list=list.filter(v=>getMesKey(v.fecha)===vMes);
   list.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   const camps=[...new Set(ventas.map(v=>v.campana))];
   const cf=document.getElementById('v-camp-filter');
-  if(cf){cf.innerHTML='<option value="">Todas las campañas</option>'+camps.map(c=>`<option value="${c}">${c}</option>`).join('');}
-  document.getElementById('v-count').textContent=list.length+' venta(s)';
-  if(!list.length){document.getElementById('v-table').innerHTML='<tr><td colspan="9"><div class="empty">📋 Sin ventas registradas</div></td></tr>';return;}
+  if(cf){cf.innerHTML='<option value="">Todas las campañas</option>'+camps.map(c=>`<option value="${c}" ${vCamp===c?'selected':''}>${c}</option>`).join('');}
+  document.getElementById('v-count').textContent=list.length+' venta(s)'+(vMes?' — '+getMesLabel(vMes):'');
+  if(!list.length){document.getElementById('v-table').innerHTML='<tr><td colspan="9"><div class="empty">📋 Sin ventas'+(vMes?' en '+getMesLabel(vMes):' registradas')+'</div></td></tr>';return;}
   document.getElementById('v-table').innerHTML=list.map(v=>{const ag=getAg(v.agenteId);const m=monthsAgo(v.fecha);const rl=riskLevel(m);const dec=decomisiones.find(d=>d.ventaId===v.id);
     return`<tr><td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${v.fecha}</td>
     <td><div class="ar"><div class="av" style="background:${ag.color};width:24px;height:24px;font-size:10px;">${ag.nombre.slice(0,2).toUpperCase()}</div>${ag.nombre}</div></td>
@@ -1647,38 +1686,73 @@ function renderVentas(){
     <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--neon);">${fmt(v.comision)}</td>
     <td style="font-family:'DM Mono',monospace;font-size:10px;">${m} mes(es)</td>
     <td>${dec?'<span class="pill pill-r">Decomisionada</span>':`<span class="pill ${rl.cls}">${rl.label}</span>`}</td>
-    <td><button class="db" onclick="delVenta(${v.id})">🗑</button></td></tr>`;}).join('');
+    <td style="display:flex;gap:4px;"><button class="db" onclick="openEditVenta(${v.id})" title="Editar">✏️</button><button class="db" onclick="delVenta(${v.id})">🗑</button></td></tr>`;}).join('');
 }
 function filterVentas(v){vSearch=v.toLowerCase();renderVentas();}
 function filterVentasCamp(v){vCamp=v;renderVentas();}
+function filterVentasMes(v){vMes=v;renderVentas();}
 function delVenta(id){if(!confirm('¿Eliminar esta venta?'))return;ventas=ventas.filter(v=>v.id!==id);saveAll();renderVentas();renderDashboard();toast('🗑️ Venta eliminada');}
+function openEditVenta(id){
+  const v=ventas.find(x=>x.id===id);if(!v)return;
+  buildSel('ev-agente');
+  document.getElementById('ev-id').value=id;
+  document.getElementById('ev-agente').value=v.agenteId;
+  document.getElementById('ev-fecha').value=v.fecha;
+  document.getElementById('ev-campana').value=v.campana;
+  document.getElementById('ev-producto').value=v.producto;
+  document.getElementById('ev-cliente').value=v.cliente||'';
+  document.getElementById('ev-comision').value=v.comision;
+  openM('modal-edit-venta');
+}
+function saveEditVenta(){
+  const id=parseInt(document.getElementById('ev-id').value);
+  const idx=ventas.findIndex(x=>x.id===id);if(idx<0)return;
+  const ag=document.getElementById('ev-agente').value;
+  const com=parseFloat(document.getElementById('ev-comision').value);
+  if(!ag||!com){toast('⚠️ Completa todos los campos');return;}
+  ventas[idx]={...ventas[idx],
+    agenteId:parseInt(ag),
+    fecha:document.getElementById('ev-fecha').value,
+    campana:document.getElementById('ev-campana').value,
+    producto:document.getElementById('ev-producto').value,
+    cliente:document.getElementById('ev-cliente').value,
+    comision:com
+  };
+  saveAll();closeModals();renderVentas();renderDashboard();
+  toast('✅ Venta actualizada','ok');
+}
 
 /* ─── NÓMINA ─── */
 let nomChart=null;
+function filterNominaMes(v){nomMes=v;renderNomina();}
 function renderNomina(){
   buildSel('p-agente');buildSel('b-agente');buildSel('desc-agente');
+  const pgF=nomMes?pagos.filter(p=>getMesKey(p.fecha)===nomMes):pagos;
+  const bnF=nomMes?bonos.filter(b=>getMesKey(b.fecha||today())===nomMes):bonos;
+  const dsF=nomMes?descuentos.filter(d=>getMesKey(d.fecha)===nomMes):descuentos;
+  buildMesFiltro([...pagos,...bonos,...descuentos],'nom-mes-filter',nomMes);
   const agD=agentes.map(ag=>{
-    const apg=pagos.filter(p=>p.agenteId===ag.id);const abn=bonos.filter(b=>b.agenteId===ag.id);
-    const ades=descuentos.filter(d=>d.agenteId===ag.id);
+    const apg=pgF.filter(p=>p.agenteId===ag.id);
+    const abn=bnF.filter(b=>b.agenteId===ag.id);
+    const ades=dsF.filter(d=>d.agenteId===ag.id);
     const base=apg.filter(p=>p.tipo==='Sueldo base').reduce((s,p)=>s+p.monto,0);
     const cInt=apg.filter(p=>p.tipo==='Comisión internet').reduce((s,p)=>s+p.monto,0);
     const cMov=apg.filter(p=>p.tipo==='Comisión móvil').reduce((s,p)=>s+p.monto,0);
-    const bns=abn.reduce((s,b)=>s+b.monto,0);
+    const bnsEsp=apg.filter(p=>p.tipo==='Bono especial').reduce((s,p)=>s+p.monto,0);
+    const bns=abn.reduce((s,b)=>s+b.monto,0)+bnsEsp;
     const adl=apg.filter(p=>p.tipo==='Adelanto').reduce((s,p)=>s+p.monto,0);
     const des=ades.reduce((s,d)=>s+d.monto,0);
     return{ag,base,cInt,cMov,bns,adl,des,total:base+cInt+cMov+bns-des};
   });
   const tBase=agD.reduce((s,d)=>s+d.base,0),tCom=agD.reduce((s,d)=>s+d.cInt+d.cMov,0),tBon=agD.reduce((s,d)=>s+d.bns,0),tDes=agD.reduce((s,d)=>s+d.des,0),grand=tBase+tCom+tBon-tDes;
-  document.getElementById('nom-total').textContent=fmt(grand);
+  document.getElementById('nom-total').textContent=fmt(grand)+(nomMes?' ('+getMesLabel(nomMes)+')':'');
   document.getElementById('nom-breakdown').innerHTML=[
-    {l:'Sueldos base',v:tBase,c:'var(--blue)'},
-    {l:'Comisiones',v:tCom,c:'var(--neon)'},
-    {l:'Bonos',v:tBon,c:'var(--amber)'},
-    {l:'Descuentos',v:-tDes,c:'var(--hot)'}
+    {l:'Sueldos base',v:tBase,c:'var(--blue)'},{l:'Comisiones',v:tCom,c:'var(--neon)'},
+    {l:'Bonos',v:tBon,c:'var(--amber)'},{l:'Descuentos',v:-tDes,c:'var(--hot)'}
   ].map(r=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--b1);font-size:11.5px;text-transform:none;letter-spacing:normal;"><span style="color:var(--txt2);">${r.l}</span><span style="font-family:'DM Mono',monospace;font-weight:700;color:${r.c};">${r.v<0?'− '+fmt(Math.abs(r.v)):fmt(r.v)}</span></div>`).join('');
   if(nomChart) nomChart.destroy();
   if(tBase+tCom+tBon>0){nomChart=new Chart(document.getElementById('nominaChart').getContext('2d'),{type:'doughnut',data:{labels:['Sueldos','Comisiones','Bonos','Descuentos'],datasets:[{data:[tBase,tCom,tBon,tDes],backgroundColor:['rgba(77,166,255,.7)','rgba(0,255,225,.7)','rgba(255,176,32,.7)','rgba(255,45,110,.7)'],borderWidth:0}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10},padding:6,boxWidth:8}}},cutout:'62%'}});}
-  if(!agentes.length){document.getElementById('nom-table').innerHTML='<tr><td colspan="8"><div class="empty">👥 Sin agentes — agrega agentes primero</div></td></tr>';return;}
+  if(!agentes.length){document.getElementById('nom-table').innerHTML='<tr><td colspan="8"><div class="empty">👥 Sin agentes</div></td></tr>';return;}
   document.getElementById('nom-table').innerHTML=agD.map(d=>`<tr>
     <td><div class="ar"><div class="av" style="background:${d.ag.color};width:26px;height:26px;font-size:10px;">${d.ag.nombre.slice(0,2).toUpperCase()}</div><span style="font-weight:600;">${d.ag.nombre}</span></div></td>
     <td style="font-family:'DM Mono',monospace;">${fmt(d.base)}</td>
@@ -1688,27 +1762,24 @@ function renderNomina(){
     <td style="font-family:'DM Mono',monospace;color:var(--txt2);">${fmt(d.adl)}</td>
     <td style="font-family:'DM Mono',monospace;color:var(--hot);font-weight:700;">${d.des>0?'− '+fmt(d.des):'—'}</td>
     <td style="font-family:'DM Mono',monospace;font-weight:700;color:${d.total>=0?'var(--neon)':'var(--hot)'};">${fmt(d.total)}</td></tr>`).join('');
-
-  // Tabla de descuentos
-  const totalDesc=descuentos.reduce((s,d)=>s+d.monto,0);
+  const totalDesc=dsF.reduce((s,d)=>s+d.monto,0);
   document.getElementById('desc-total-lbl').textContent='Total: '+fmt(totalDesc);
   const TIPO_ICONS={'Falta injustificada':'❌','Tardanza':'⏰','Decomisión descontada':'📉','Préstamo / Adelanto':'💵','Error operativo':'⚠️','Otro':'📋'};
-  document.getElementById('desc-table').innerHTML=descuentos.length?[...descuentos].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(d=>{const ag=getAg(d.agenteId);return`<tr>
+  document.getElementById('desc-table').innerHTML=dsF.length?[...dsF].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(d=>{const ag=getAg(d.agenteId);return`<tr>
     <td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${d.fecha}</td>
     <td><div class="ar"><div class="av" style="background:${ag.color};width:24px;height:24px;font-size:9px;">${ag.nombre.slice(0,2).toUpperCase()}</div>${ag.nombre}</div></td>
     <td><span class="pill pill-r">${TIPO_ICONS[d.tipo]||'📋'} ${d.tipo}</span></td>
     <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--hot);">− ${fmt(d.monto)}</td>
     <td style="color:var(--txt2);font-size:11px;text-transform:none;">${d.detalle||'—'}${d.cantidad>1?' (×'+d.cantidad+')':''}</td>
-    <td><button class="db" onclick="delDescuento(${d.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">✅ Sin descuentos registrados este mes</div></td></tr>';
-
-  const allPag=[...pagos,...bonos.map(b=>({...b,tipo:'Bono'}))].sort((a,b)=>new Date(b.fecha||today())-new Date(a.fecha||today()));
+    <td><button class="db" onclick="delDescuento(${d.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">✅ Sin descuentos'+(nomMes?' en '+getMesLabel(nomMes):' registrados')+'</div></td></tr>';
+  const allPag=[...pgF,...bnF.map(b=>({...b,tipo:'Bono'}))].sort((a,b)=>new Date(b.fecha||today())-new Date(a.fecha||today()));
   document.getElementById('pagos-table').innerHTML=allPag.length?allPag.map(p=>{const ag=getAg(p.agenteId);return`<tr>
     <td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${p.fecha||'—'}</td>
     <td><div class="ar"><div class="av" style="background:${ag.color};width:22px;height:22px;font-size:9px;">${ag.nombre.slice(0,2).toUpperCase()}</div>${ag.nombre}</div></td>
-    <td><span class="pill ${p.tipo==='Sueldo base'?'pill-b':p.tipo==='Bono'?'pill-a':'pill-g'}">${p.tipo}</span></td>
+    <td><span class="pill ${p.tipo==='Sueldo base'?'pill-b':p.tipo==='Bono'||p.tipo==='Bono especial'?'pill-a':'pill-g'}">${p.tipo}</span></td>
     <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--hot);">${fmt(p.monto)}</td>
     <td style="color:var(--txt2);font-size:11px;text-transform:none;">${p.nota||p.motivo||'—'}</td>
-    <td><button class="db" onclick="delPago(${p.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">Sin pagos registrados</div></td></tr>';
+    <td><button class="db" onclick="delPago(${p.id})">🗑</button></td></tr>`;}).join(''):'<tr><td colspan="6"><div class="empty">Sin pagos'+(nomMes?' en '+getMesLabel(nomMes):' registrados')+'</div></td></tr>';
 }
 function delPago(id){pagos=pagos.filter(p=>p.id!==id);bonos=bonos.filter(b=>b.id!==id);saveAll();renderNomina();toast('🗑️ Pago eliminado');}
 function delDescuento(id){if(!confirm('¿Eliminar este descuento?'))return;descuentos=descuentos.filter(d=>d.id!==id);saveAll();renderNomina();toast('🗑️ Descuento eliminado');}
