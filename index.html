@@ -1023,7 +1023,15 @@ select option{background:var(--s2);}
   <div class="modal-sub">Asigna un bono por rendimiento o meta alcanzada</div>
   <div class="frow">
     <div class="fg"><label>Agente</label><select id="b-agente"></select></div>
+    <div class="fg"><label>Fecha del bono</label><input type="date" id="b-fecha"></div>
+  </div>
+  <div class="frow">
     <div class="fg"><label>Monto bono (S/)</label><input type="number" id="b-monto" placeholder="0.00"></div>
+    <div class="fg"><label>Mes al que corresponde</label>
+      <select id="b-mes-ref" style="width:100%;">
+        <option value="">Este mes</option>
+      </select>
+    </div>
   </div>
   <div class="fg"><label>Motivo</label><input type="text" id="b-motivo" placeholder="Ej: Mejor vendedor del mes..."></div>
   <div class="macts">
@@ -1635,7 +1643,7 @@ function buildGlobalMesFiltro(){
 }
 function getVentasMes(mes){return mes?ventas.filter(v=>getMesKey(v.fecha)===mes):ventas;}
 function getPagosMes(mes){return mes?pagos.filter(p=>getMesKey(p.fecha)===mes):pagos;}
-function getBonosMes(mes){return mes?bonos.filter(b=>getMesKey(b.fecha||today())===mes):bonos;}
+function getBonosMes(mes){return mes?bonos.filter(b=>getMesKey(b.mesRef||b.fecha||today())===mes):bonos;}
 function getGastosMes(mes){return mes?gastos.filter(g=>getMesKey(g.fecha)===mes):gastos;}
 function getDecosMes(mes){return mes?decomisiones.filter(d=>getMesKey(d.fecha)===mes):decomisiones;}
 function getIngMes(mes){return getVentasMes(mes).reduce((s,v)=>s+v.comision,0);}
@@ -1906,7 +1914,7 @@ function filterNominaMes(v){nomMes=v;renderNomina();}
 function renderNomina(){
   buildSel('p-agente');buildSel('b-agente');buildSel('desc-agente');
   const pgF=nomMes?pagos.filter(p=>getMesKey(p.fecha)===nomMes):pagos;
-  const bnF=nomMes?bonos.filter(b=>getMesKey(b.fecha||today())===nomMes):bonos;
+  const bnF=nomMes?bonos.filter(b=>getMesKey(b.mesRef||b.fecha||today())===nomMes):bonos;
   const dsF=nomMes?descuentos.filter(d=>getMesKey(d.fecha)===nomMes):descuentos;
   buildMesFiltro([...pagos,...bonos,...descuentos],'nom-mes-filter',nomMes);
   const agD=agentes.map(ag=>{
@@ -2222,7 +2230,6 @@ function openModalV(){buildSel('v-agente');document.getElementById('v-fecha').va
 function openModalG(){document.getElementById('g-fecha').value=today();document.getElementById('g-monto').value='';document.getElementById('g-desc').value='';openM('modal-gasto');}
 function openModalAg(){document.getElementById('ag-nombre').value='';document.getElementById('ag-inicio').value=today();document.getElementById('ag-sueldo').value='';document.getElementById('ag-meta').value='';document.getElementById('ag-com-int').value='';document.getElementById('ag-com-mov').value='';agColor='#00ffe1';document.querySelectorAll('#ag-colpick div').forEach((d,i)=>d.style.border=i===0?'2px solid #fff':'2px solid transparent');openM('modal-agente');}
 function openModalP(){buildSel('p-agente');document.getElementById('p-fecha').value=today();document.getElementById('p-monto').value='';document.getElementById('p-nota').value='';openM('modal-pago');}
-function openModalB(){buildSel('b-agente');document.getElementById('b-monto').value='';document.getElementById('b-motivo').value='';openM('modal-bono');}
 function openModalDC(){
   const activos=ventas.filter(v=>!decomisiones.find(d=>d.ventaId===v.id)&&monthsAgo(v.fecha)<6);
   const s=document.getElementById('dc-venta');
@@ -2255,11 +2262,31 @@ function savePago(){
   pagos.push({id:Date.now(),agenteId:parseInt(ag),fecha:document.getElementById('p-fecha').value,tipo:document.getElementById('p-tipo').value,monto:m,nota:document.getElementById('p-nota').value});
   saveAll();closeModals();renderNomina();toast('✅ Pago registrado — '+fmt(m),'ok');
 }
+function openModalB(){
+  buildSel('b-agente');
+  document.getElementById('b-fecha').value=today();
+  document.getElementById('b-monto').value='';
+  document.getElementById('b-motivo').value='';
+  const now=new Date();
+  const sel=document.getElementById('b-mes-ref');
+  sel.innerHTML='';
+  for(let i=0;i<6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const opt=document.createElement('option');
+    opt.value=key;opt.textContent=getMesLabel(key);
+    if(i===0)opt.selected=true;
+    sel.appendChild(opt);
+  }
+  openM('modal-bono');
+}
 function saveBono(){
   const ag=document.getElementById('b-agente').value,m=parseFloat(document.getElementById('b-monto').value);
   if(!ag||!m){toast('⚠️ Selecciona agente y monto');return;}
-  bonos.push({id:Date.now(),agenteId:parseInt(ag),fecha:today(),monto:m,motivo:document.getElementById('b-motivo').value});
-  saveAll();closeModals();renderNomina();toast('🎁 Bono asignado — '+fmt(m),'ok');
+  const fecha=document.getElementById('b-fecha').value||today();
+  const mesRef=document.getElementById('b-mes-ref').value||getMesKey(fecha);
+  bonos.push({id:Date.now(),agenteId:parseInt(ag),fecha,mesRef,monto:m,motivo:document.getElementById('b-motivo').value});
+  saveAll();closeModals();renderNomina();toast('🎁 Bono asignado — '+fmt(m)+' ('+getMesLabel(mesRef)+')','ok');
 }
 function saveDecomision(){
   const vId=parseInt(document.getElementById('dc-venta').value),m=parseFloat(document.getElementById('dc-monto').value);
