@@ -316,7 +316,47 @@ select option{background:var(--s2);}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:1100px){.metrics{grid-template-columns:repeat(2,1fr);}.charts2{grid-template-columns:1fr;}.aperf{grid-template-columns:repeat(2,1fr);}.edu-grid{grid-template-columns:1fr;}.salary-breakdown{grid-template-columns:1fr 1fr;}}
-@media(max-width:768px){.sidebar{transform:translateX(-100%);}.main{margin-left:0;padding:14px;}.metrics{grid-template-columns:1fr 1fr;}.frow,.frow3{grid-template-columns:1fr;}}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);transition:transform .3s cubic-bezier(.77,0,.18,1);}
+  .sidebar.open{transform:translateX(0);}
+  .main{margin-left:0;padding:14px;}
+  .metrics{grid-template-columns:1fr 1fr;}
+  .frow,.frow3{grid-template-columns:1fr;}
+  .ph h2{font-size:26px;}
+  .ph{flex-wrap:wrap;gap:10px;}
+}
+
+/* ── HAMBURGER BUTTON ── */
+.mob-toggle{
+  display:none;
+  position:fixed;top:14px;left:14px;z-index:200;
+  width:42px;height:42px;border-radius:11px;
+  background:rgba(8,13,28,0.95);
+  border:1px solid rgba(0,255,225,0.2);
+  backdrop-filter:blur(14px);
+  cursor:pointer;align-items:center;justify-content:center;
+  flex-direction:column;gap:5px;
+  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+  transition:all .2s;
+}
+.mob-toggle:hover{border-color:rgba(0,255,225,0.5);}
+.mob-toggle span{
+  display:block;width:18px;height:2px;
+  background:var(--neon);border-radius:99px;
+  transition:all .25s cubic-bezier(.77,0,.18,1);
+}
+.mob-toggle.open span:nth-child(1){transform:translateY(7px) rotate(45deg);}
+.mob-toggle.open span:nth-child(2){opacity:0;transform:scaleX(0);}
+.mob-toggle.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg);}
+@media(max-width:768px){.mob-toggle{display:flex;}.main{padding-top:70px;}}
+
+/* ── SIDEBAR OVERLAY (tap fuera para cerrar) ── */
+.sidebar-overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(4,6,15,0.6);backdrop-filter:blur(3px);
+  z-index:99;
+}
+.sidebar-overlay.open{display:block;}
 
 /* Scrollbar */
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-thumb{background:var(--s3);border-radius:99px;}::-webkit-scrollbar-thumb:hover{background:var(--b2);}
@@ -326,6 +366,14 @@ select option{background:var(--s2);}
 
 <canvas id="bgCanvas"></canvas>
 <div class="orb orb1"></div><div class="orb orb2"></div><div class="orb orb3"></div>
+
+<!-- HAMBURGER BUTTON (solo móvil) -->
+<button class="mob-toggle" id="mob-toggle" onclick="toggleSidebar()" aria-label="Menú">
+  <span></span><span></span><span></span>
+</button>
+
+<!-- OVERLAY para cerrar sidebar tocando fuera -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
 <!-- LOGIN -->
 <div id="login-screen">
@@ -1358,6 +1406,24 @@ function monthLabels(n){const M=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago'
 function mTotals(arr,field,n){const now=new Date();return Array.from({length:n},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-(n-1-i),1);const yr=d.getFullYear(),mo=d.getMonth();return arr.filter(x=>{const xd=new Date(x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x[field]||0),0);});}
 const chartOpts=(ycb)=>({plugins:{legend:{labels:{color:'#8898c0',font:{size:10,family:'DM Sans'}}}},scales:{x:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9}},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}},y:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9},callback:ycb||((v)=>'S/'+fmtN(v))},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}}}});
 
+/* ─── MOBILE SIDEBAR ─── */
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebar-overlay');
+  const btn=document.getElementById('mob-toggle');
+  const isOpen=sb.classList.contains('open');
+  if(isOpen){closeSidebar();}else{
+    sb.classList.add('open');
+    ov.classList.add('open');
+    btn.classList.add('open');
+  }
+}
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+  document.getElementById('mob-toggle').classList.remove('open');
+}
+
 /* ─── NAVIGATION ─── */
 function showPage(id,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1366,6 +1432,8 @@ function showPage(id,el){
   if(el) el.classList.add('active');
   else document.querySelectorAll('.ni').forEach(n=>{if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+id+"'"))n.classList.add('active');});
   ({dashboard:renderDashboard,ventas:renderVentas,nomina:renderNomina,decomisiones:renderDecomisiones,agentes:renderAgentes,gastos:renderGastos,balance:renderBalance,educacion:renderEducacion})[id]?.();
+  // Cerrar sidebar en móvil al navegar
+  if(window.innerWidth<=768) closeSidebar();
 }
 
 /* ─── SALARY CALCULATOR ─── */
