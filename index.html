@@ -1061,6 +1061,18 @@ select option{background:var(--s2);}
     <button class="btn btn-ghost" onclick="closeM('modal-gs')">Cancelar</button>
     <button class="btn btn-neon" onclick="connectSheets()">Conectar y probar</button>
   </div>
+  <!-- Acciones manuales (visible solo si ya está conectado) -->
+  <div id="gs-manual-actions" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--b1);">
+    <div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--txt3);font-family:'DM Mono',monospace;margin-bottom:10px;">Sincronización manual</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <button class="btn btn-ghost" onclick="forcePullFromSheets();closeM('modal-gs');" style="display:flex;align-items:center;gap:7px;justify-content:center;">
+        ⬇️ <div style="text-align:left;"><div style="font-size:11px;">Bajar de Sheets</div><div style="font-size:9px;font-weight:400;color:var(--txt3);text-transform:none;">Sheets → este dispositivo</div></div>
+      </button>
+      <button class="btn btn-ghost" onclick="forcePushToSheets();closeM('modal-gs');" style="display:flex;align-items:center;gap:7px;justify-content:center;">
+        ⬆️ <div style="text-align:left;"><div style="font-size:11px;">Subir a Sheets</div><div style="font-size:9px;font-weight:400;color:var(--txt3);text-transform:none;">Este dispositivo → Sheets</div></div>
+      </button>
+    </div>
+  </div>
 </div>
 </div>
 
@@ -1280,20 +1292,78 @@ async function syncToSheets(){
   else{setGSStatus('error');console.warn('GS push failed');}
 }
 async function syncNow(){
-  toast('🔄 Sincronizando con Google Sheets...');
+  if(!GS.enabled) return;
+  setGSStatus('syncing');
+
+  // 1. Primero JALAMOS los datos del Sheets
+  const remote = await GS.pull();
+
+  if(remote){
+    const tieneLocal = agentes.length||ventas.length||pagos.length||bonos.length||gastos.length||decomisiones.length||descuentos.length;
+    const tieneRemoto = (remote.agentes&&remote.agentes.length)||(remote.ventas&&remote.ventas.length);
+
+    if(tieneRemoto){
+      // Hay datos en Sheets — los traemos (Sheets es la fuente de verdad)
+      if(remote.agentes&&remote.agentes.length)     agentes=remote.agentes;
+      if(remote.ventas&&remote.ventas.length)       ventas=remote.ventas;
+      if(remote.pagos&&remote.pagos.length)         pagos=remote.pagos;
+      if(remote.bonos&&remote.bonos.length)         bonos=remote.bonos;
+      if(remote.gastos&&remote.gastos.length)       gastos=remote.gastos;
+      if(remote.decomisiones&&remote.decomisiones.length) decomisiones=remote.decomisiones;
+      if(remote.descuentos&&remote.descuentos.length)     descuentos=remote.descuentos;
+      // Guardamos en local para modo offline
+      sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);
+      sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
+      setGSStatus('ok');
+      renderDashboard();
+      toast('☁️ Datos cargados desde Sheets ('+agentes.length+' agentes, '+ventas.length+' ventas)','ok');
+    } else if(tieneLocal){
+      // No hay datos en Sheets pero sí hay local — subimos el local al Sheets
+      await syncToSheets();
+      toast('☁️ Datos locales subidos a Sheets','ok');
+    } else {
+      // No hay datos en ningún lado — app vacía
+      setGSStatus('ok');
+    }
+  } else {
+    // No se pudo conectar — usamos local (modo offline)
+    setGSStatus('error');
+    toast('⚠️ Sin conexión — usando datos locales','warn');
+  }
+}
+
+async function forcePushToSheets(){
+  // Forzar subida (sobreescribe Sheets con datos locales)
+  if(!GS.enabled){toast('⚠️ Conecta Google Sheets primero');return;}
+  if(!confirm('¿Sobreescribir los datos de Sheets con los datos de este dispositivo?'))return;
+  setGSStatus('syncing');
   await syncToSheets();
-  // Also pull latest
+  toast('✅ Datos locales subidos a Sheets','ok');
+}
+
+async function forcePullFromSheets(){
+  // Forzar bajada (sobreescribe local con datos de Sheets)
+  if(!GS.enabled){toast('⚠️ Conecta Google Sheets primero');return;}
+  if(!confirm('¿Reemplazar los datos de este dispositivo con los datos de Sheets?'))return;
+  setGSStatus('syncing');
+  toast('⬇️ Descargando datos de Sheets...');
   const remote=await GS.pull();
   if(remote){
-    if(remote.agentes&&remote.agentes.length) agentes=remote.agentes;
-    if(remote.ventas&&remote.ventas.length) ventas=remote.ventas;
-    if(remote.pagos&&remote.pagos.length) pagos=remote.pagos;
-    if(remote.bonos&&remote.bonos.length) bonos=remote.bonos;
-    if(remote.gastos&&remote.gastos.length) gastos=remote.gastos;
-    if(remote.decomisiones&&remote.decomisiones.length) decomisiones=remote.decomisiones;
-    sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);
+    if(remote.agentes)     agentes=remote.agentes;
+    if(remote.ventas)      ventas=remote.ventas;
+    if(remote.pagos)       pagos=remote.pagos;
+    if(remote.bonos)       bonos=remote.bonos;
+    if(remote.gastos)      gastos=remote.gastos;
+    if(remote.decomisiones)decomisiones=remote.decomisiones;
+    if(remote.descuentos)  descuentos=remote.descuentos||[];
+    sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);
+    sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
+    setGSStatus('ok');
     renderDashboard();
-    toast('✅ Datos actualizados desde Sheets','ok');
+    toast('✅ Datos descargados de Sheets','ok');
+  } else {
+    setGSStatus('error');
+    toast('❌ No se pudo conectar con Sheets','err');
   }
 }
 
@@ -1311,13 +1381,16 @@ function updateGSUI(){
   const url=GS.url;
   const row=document.getElementById('gs-connected-row');
   const shortEl=document.getElementById('gs-url-short');
+  const manualActions=document.getElementById('gs-manual-actions');
   if(url){
     if(row) row.style.display='flex';
     if(shortEl) shortEl.textContent=url.slice(0,60)+'...';
+    if(manualActions) manualActions.style.display='block';
     document.getElementById('gs-url-input').value=url;
     setGSStatus('ok');
   } else {
     if(row) row.style.display='none';
+    if(manualActions) manualActions.style.display='none';
     setGSStatus('off');
   }
 }
@@ -1984,11 +2057,30 @@ function enterApp(u){
   setUser(u);
   document.getElementById('sb-avatar').textContent=(u.fullname||u.username).slice(0,2).toUpperCase();
   document.getElementById('sb-uname').textContent=u.fullname||u.username;
-  loadAll();
-  const sc=document.getElementById('login-screen');sc.classList.add('hiding');
-  setTimeout(()=>{sc.classList.add('hidden');renderDashboard();toast('👋 Bienvenido, '+(u.fullname||u.username).split(' ')[0]+'!','ok');},500);
-  updateGSUI();
-  if(GS.enabled) syncNow();
+  loadAll(); // carga local primero (para modo offline)
+  const sc=document.getElementById('login-screen');
+  sc.classList.add('hiding');
+  setTimeout(async ()=>{
+    sc.classList.add('hidden');
+    updateGSUI();
+    if(GS.enabled){
+      // Pantalla de carga mientras jalamos Sheets
+      document.getElementById('page-dashboard').innerHTML=`
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:18px;">
+          <div style="width:52px;height:52px;border-radius:50%;border:3px solid rgba(0,255,225,0.2);border-top-color:var(--neon);animation:spin .8s linear infinite;"></div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;text-transform:uppercase;">Cargando datos desde Sheets...</div>
+          <div style="font-size:11px;color:var(--txt3);text-transform:none;">Esto puede tardar unos segundos</div>
+        </div>`;
+      document.getElementById('page-dashboard').classList.add('active');
+      await syncNow();
+      // Reconstruir el dashboard después de la carga
+      document.getElementById('page-dashboard').innerHTML=getDashboardHTML();
+      renderDashboard();
+    } else {
+      renderDashboard();
+      toast('👋 Bienvenido, '+(u.fullname||u.username).split(' ')[0]+'!','ok');
+    }
+  },500);
 }
 function doLogout(){clearSession();const sc=document.getElementById('login-screen');sc.classList.remove('hidden','hiding');document.getElementById('l-user').value='';document.getElementById('l-pass').value='';document.getElementById('l-loading').classList.remove('show');document.querySelector('#form-login .btn-login').style.display='';document.getElementById('l-error').classList.remove('show');document.getElementById('user-dropdown').classList.remove('open');renderQuickUsers();toast('👋 Sesión cerrada');}
 function toggleUserMenu(){document.getElementById('user-dropdown').classList.toggle('open');}
@@ -2011,17 +2103,40 @@ function findRecoverUser(){const email=document.getElementById('rec-email').valu
 function confirmRecover(email){const np=document.getElementById('rec-newpass').value;const np2=document.getElementById('rec-newpass2').value;const err=document.getElementById('rec-error');err.classList.remove('show');if(np.length<6){err.textContent='⚠ Mínimo 6 caracteres';err.classList.add('show');return;}if(np!==np2){err.textContent='⚠ Las contraseñas no coinciden';err.classList.add('show');return;}const users=getUsers();const idx=users.findIndex(u=>u.email===email);users[idx].password=np;saveUsers(users);closeM('modal-recover');toast('✅ Contraseña actualizada','ok');}
 
 /* ─── INIT ─── */
+// El HTML del dashboard se guarda para poder reconstruirlo tras la carga de Sheets
+function getDashboardHTML(){ return document.getElementById('page-dashboard').innerHTML; }
+let _dashHTML = '';
+
 (function(){
   const u=getUser();
   if(u){
     const users=getUsers();const v=users.find(x=>x.username===u.username);
     if(v){
-      const sc=document.getElementById('login-screen');sc.style.opacity='0';sc.style.transition='none';
-      setTimeout(()=>{sc.classList.add('hidden');sc.style.opacity='';sc.style.transition='';loadAll();renderDashboard();},30);
+      const sc=document.getElementById('login-screen');
+      sc.style.opacity='0';sc.style.transition='none';
       document.getElementById('sb-avatar').textContent=(v.fullname||v.username).slice(0,2).toUpperCase();
       document.getElementById('sb-uname').textContent=v.fullname||v.username;
-      updateGSUI();
-      if(GS.enabled) setTimeout(syncNow,1500);
+      setTimeout(async ()=>{
+        sc.classList.add('hidden');sc.style.opacity='';sc.style.transition='';
+        loadAll();
+        updateGSUI();
+        if(GS.enabled){
+          // Guarda HTML original del dashboard
+          _dashHTML = document.getElementById('page-dashboard').innerHTML;
+          document.getElementById('page-dashboard').innerHTML=`
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:18px;">
+              <div style="width:52px;height:52px;border-radius:50%;border:3px solid rgba(0,255,225,0.2);border-top-color:var(--neon);animation:spin .8s linear infinite;"></div>
+              <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;text-transform:uppercase;">Sincronizando con Sheets...</div>
+              <div style="font-size:11px;color:var(--txt3);text-transform:none;">Cargando tus datos</div>
+            </div>`;
+          document.getElementById('page-dashboard').classList.add('active');
+          await syncNow();
+          document.getElementById('page-dashboard').innerHTML=_dashHTML;
+          renderDashboard();
+        } else {
+          renderDashboard();
+        }
+      },30);
     } else clearSession();
   }
   renderQuickUsers();
