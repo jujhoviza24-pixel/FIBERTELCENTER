@@ -1049,7 +1049,10 @@ select option{background:var(--s2);}
   <div class="modal-sub">Descuentos por faltas, tardanzas, decomisiones u otros motivos</div>
   <div class="frow">
     <div class="fg"><label>Agente</label><select id="desc-agente"></select></div>
-    <div class="fg"><label>Fecha</label><input type="date" id="desc-fecha"></div>
+    <div class="fg"><label>Fecha del descuento</label><input type="date" id="desc-fecha"></div>
+  </div>
+  <div class="fg"><label>Mes al que corresponde</label>
+    <select id="desc-mes-ref" style="width:100%;"></select>
   </div>
   <div class="fg"><label>Tipo de descuento</label>
     <select id="desc-tipo" onchange="updateDescPlaceholder()">
@@ -1612,8 +1615,10 @@ const getAg=id=>agentes.find(a=>a.id===id)||{nombre:'Desconocido',color:'#555'};
 // Helpers para filtro por mes
 function getMesKey(fecha){const d=new Date(fecha||today());return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function getMesLabel(key){const [y,m]=key.split('-');const MESES=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];return MESES[parseInt(m)]+' '+y;}
+// getMesPeriodo: devuelve la clave del período al que PERTENECE el registro (mesRef si existe, sino fecha)
+function getMesPeriodo(x){return x.mesRef||getMesKey(x.fecha||today());}
 function buildMesFiltro(arr,selId,val){
-  const keys=[...new Set(arr.map(x=>getMesKey(x.fecha||today())))].sort().reverse();
+  const keys=[...new Set(arr.map(x=>getMesPeriodo(x)))].sort().reverse();
   const sel=document.getElementById(selId);if(!sel)return;
   sel.innerHTML='<option value="">Todos los meses</option>'+keys.map(k=>`<option value="${k}" ${val===k?'selected':''}>${getMesLabel(k)}</option>`).join('');
 }
@@ -1635,17 +1640,26 @@ function setGlobalMes(val){
   }
 }
 function buildGlobalMesFiltro(){
-  const all=[...ventas,...pagos,...bonos.map(b=>({...b,fecha:b.fecha||today()})),...gastos,...decomisiones];
-  const keys=[...new Set(all.map(x=>getMesKey(x.fecha)))].sort().reverse();
+  // Usar getMesPeriodo para que bonos y descuentos aparezcan en su mes correcto
+  const all=[
+    ...ventas.map(x=>({periodo:getMesKey(x.fecha)})),
+    ...pagos.map(x=>({periodo:getMesKey(x.fecha)})),
+    ...bonos.map(x=>({periodo:getMesPeriodo(x)})),
+    ...gastos.map(x=>({periodo:getMesKey(x.fecha)})),
+    ...decomisiones.map(x=>({periodo:getMesKey(x.fecha)})),
+    ...descuentos.map(x=>({periodo:getMesPeriodo(x)})),
+  ];
+  const keys=[...new Set(all.map(x=>x.periodo))].sort().reverse();
   const sel=document.getElementById('global-mes');if(!sel)return;
   const cur=sel.value;
   sel.innerHTML='<option value="">📊 Todos los meses (acumulado)</option>'+keys.map(k=>`<option value="${k}" ${cur===k?'selected':''}>${getMesLabel(k)}</option>`).join('');
 }
 function getVentasMes(mes){return mes?ventas.filter(v=>getMesKey(v.fecha)===mes):ventas;}
 function getPagosMes(mes){return mes?pagos.filter(p=>getMesKey(p.fecha)===mes):pagos;}
-function getBonosMes(mes){return mes?bonos.filter(b=>getMesKey(b.mesRef||b.fecha||today())===mes):bonos;}
+function getBonosMes(mes){return mes?bonos.filter(b=>getMesPeriodo(b)===mes):bonos;}
 function getGastosMes(mes){return mes?gastos.filter(g=>getMesKey(g.fecha)===mes):gastos;}
 function getDecosMes(mes){return mes?decomisiones.filter(d=>getMesKey(d.fecha)===mes):decomisiones;}
+function getDescsMes(mes){return mes?descuentos.filter(d=>getMesPeriodo(d)===mes):descuentos;}
 function getIngMes(mes){return getVentasMes(mes).reduce((s,v)=>s+v.comision,0);}
 function getEgMes(mes){return getPagosMes(mes).reduce((s,p)=>s+p.monto,0)+getBonosMes(mes).reduce((s,b)=>s+b.monto,0)+getGastosMes(mes).reduce((s,g)=>s+g.monto,0);}
 
@@ -1915,7 +1929,7 @@ function renderNomina(){
   buildSel('p-agente');buildSel('b-agente');buildSel('desc-agente');
   const pgF=nomMes?pagos.filter(p=>getMesKey(p.fecha)===nomMes):pagos;
   const bnF=nomMes?bonos.filter(b=>getMesKey(b.mesRef||b.fecha||today())===nomMes):bonos;
-  const dsF=nomMes?descuentos.filter(d=>getMesKey(d.fecha)===nomMes):descuentos;
+  const dsF=nomMes?descuentos.filter(d=>getMesPeriodo(d)===nomMes):descuentos;
   buildMesFiltro([...pagos,...bonos,...descuentos],'nom-mes-filter',nomMes);
   const agD=agentes.map(ag=>{
     const apg=pgF.filter(p=>p.agenteId===ag.id);
@@ -2010,6 +2024,18 @@ function openModalDesc(){
   document.getElementById('calc-diario').value='';
   document.getElementById('calc-cant').value='';
   document.getElementById('calc-result').style.display='none';
+  // Poblar selector de mes de referencia
+  const now=new Date();
+  const sel=document.getElementById('desc-mes-ref');
+  sel.innerHTML='';
+  for(let i=0;i<6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const opt=document.createElement('option');
+    opt.value=key;opt.textContent=getMesLabel(key);
+    if(i===0)opt.selected=true;
+    sel.appendChild(opt);
+  }
   updateDescPlaceholder();
   openM('modal-descuento');
 }
@@ -2018,17 +2044,20 @@ function saveDescuento(){
   const m=parseFloat(document.getElementById('desc-monto').value);
   const tipo=document.getElementById('desc-tipo').value;
   if(!ag||!m){toast('⚠️ Selecciona agente y monto');return;}
+  const fecha=document.getElementById('desc-fecha').value;
+  const mesRef=document.getElementById('desc-mes-ref').value||getMesKey(fecha);
   descuentos.push({
     id:Date.now(),
     agenteId:parseInt(ag),
-    fecha:document.getElementById('desc-fecha').value,
+    fecha,
+    mesRef,
     tipo,
     monto:m,
     cantidad:parseInt(document.getElementById('desc-cant').value)||1,
     detalle:document.getElementById('desc-detalle').value
   });
   saveAll();closeModals();renderNomina();
-  toast('📉 Descuento registrado — '+fmt(m),'warn');
+  toast('📉 Descuento registrado — '+fmt(m)+' ('+getMesLabel(mesRef)+')','warn');
 }
 
 /* ─── DECOMISIONES ─── */
