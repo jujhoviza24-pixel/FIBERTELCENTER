@@ -1666,132 +1666,128 @@ function disconnectSheets(){
   closeM('modal-gs');
 }
 
-const GS_SCRIPT = `// FiberTel Center — Apps Script v6
+const GS_SCRIPT = `// FiberTel Center — Apps Script v7
 // INSTRUCCIONES:
-// 1. Borrar todo el código anterior en Apps Script
-// 2. Pegar este código completo
-// 3. Reemplazar TU_SPREADSHEET_ID con el ID real del Sheet
-// 4. Guardar (Ctrl+S)
-// 5. Implementar → Administrar implementaciones → ✏️ → Nueva versión → Guardar
-// 6. Copiar la URL /exec y pegarla en la app
+// 1. Abrí Apps Script → borrá TODO el código existente
+// 2. Pegá este código completo
+// 3. Reemplazá TU_SPREADSHEET_ID con tu ID real
+// 4. Guardá (Ctrl+S)
+// 5. Implementar → Administrar implementaciones → lápiz → Nueva versión → Guardar
+// 6. Copiá la URL /exec y pegala en la app
 
 var SHEET_ID = 'TU_SPREADSHEET_ID';
 var TABLES   = ['agentes','ventas','pagos','bonos','gastos','decomisiones','descuentos'];
-var NUM_FIELDS = {'id':1,'agenteId':1,'ventaId':1,'monto':1,'comision':1,'sueldo':1,'meta':1,'comInt':1,'comMov':1,'cantidad':1};
+var NUM_FIELDS = {'id':1,'agenteId':1,'ventaId':1,'monto':1,'comision':1,
+                  'sueldo':1,'meta':1,'comInt':1,'comMov':1,'cantidad':1};
+
+// Esquema de campos por tabla en orden de columna
+// Se usa cuando los headers de la hoja están corruptos (Columna1, Columna2...)
+var SCHEMA = {
+  agentes:      ['id','nombre','color','inicio','meta','sueldo','comInt','comMov','rol'],
+  ventas:       ['id','agenteId','fecha','campana','producto','cliente','comision'],
+  pagos:        ['id','agenteId','fecha','tipo','monto','nota'],
+  bonos:        ['id','agenteId','mesRef','motivo','monto'],
+  gastos:       ['id','fecha','desc','cat','monto'],
+  decomisiones: ['id','ventaId','fecha','motivo','monto'],
+  descuentos:   ['id','agenteId','fecha','mesRef','tipo','monto','cantidad','detalle']
+};
 
 function doPost(e) {
   try {
     var params = e.parameter;
     var action = params.action;
-    if (action === 'ping') return res({ok:true, pong:true, version:6});
+    if (action === 'ping') return ok({pong:true, version:7});
     if (action === 'push') {
-      if (!params.data) return res({ok:false, error:'No data received in POST body'});
+      if (!params.data) return err('No se recibio data en el POST');
       var data;
       try { data = JSON.parse(params.data); }
-      catch(pe) { return res({ok:false, error:'JSON parse error: ' + pe.message}); }
+      catch(pe) { return err('JSON invalido: ' + pe.message); }
       return pushData(data);
     }
     if (action === 'pull') return pullData();
-    return res({ok:false, error:'Unknown action: ' + action});
-  } catch(err) {
-    return res({ok:false, error:'doPost error: ' + err.message + ' | stack: ' + (err.stack||'')});
+    return err('Accion desconocida: ' + action);
+  } catch(e2) {
+    return err('doPost: ' + e2.message);
   }
 }
 
 function doGet(e) {
   try {
     var action = e.parameter.action;
-    if (action === 'ping') return res({ok:true, pong:true, version:6});
+    if (action === 'ping') return ok({pong:true, version:7});
     if (action === 'pull') return pullData();
-    return res({ok:false, error:'Use POST for push operations'});
-  } catch(err) {
-    return res({ok:false, error:'doGet error: ' + err.message});
+    return err('Usa POST para push');
+  } catch(e2) {
+    return err('doGet: ' + e2.message);
   }
 }
 
 function pushData(data) {
   var ss;
-  try {
-    ss = SpreadsheetApp.openById(SHEET_ID);
-  } catch(e) {
-    return res({ok:false, error:'No se pudo abrir el Spreadsheet. Verificá el SHEET_ID: ' + SHEET_ID + ' — Error: ' + e.message});
-  }
+  try { ss = SpreadsheetApp.openById(SHEET_ID); }
+  catch(e) { return err('No se pudo abrir el Spreadsheet ID=' + SHEET_ID + ': ' + e.message); }
 
   var pushed = [];
-  var errors = [];
+  var failed = [];
 
   for (var t = 0; t < TABLES.length; t++) {
     var name = TABLES[t];
     var rows = data[name];
     if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
-
     try {
-      // Eliminar y recrear la hoja para borrar columnas fantasma
-      var sheet = ss.getSheetByName(name);
-      if (sheet) {
-        // Borrar TODA la hoja (datos + formato + columnas extra)
-        sheet.clear();
-        // Si tiene más columnas que las que necesitamos, reducirla
-        var neededCols = Object.keys(rows[0]).length;
-        if (sheet.getMaxColumns() > neededCols + 2) {
-          sheet.deleteColumns(neededCols + 1, sheet.getMaxColumns() - neededCols);
+      var existing = ss.getSheetByName(name);
+      if (existing) {
+        var allSheets = ss.getSheets();
+        if (allSheets.length > 1) {
+          ss.deleteSheet(existing);
+          SpreadsheetApp.flush();
+        } else {
+          existing.clear();
         }
-      } else {
-        sheet = ss.insertSheet(name);
       }
-
+      var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
       var headers = Object.keys(rows[0]);
-
-      // Escribir TODAS las filas de una vez con setValues (más rápido y evita columnas extra)
-      var allData = [headers];
+      var ncols = headers.length;
+      var matrix = [headers];
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
         var rowArr = [];
-        for (var j = 0; j < headers.length; j++) {
+        for (var j = 0; j < ncols; j++) {
           var key = headers[j];
           var v = row[key];
           if (v === null || v === undefined) { rowArr.push(''); continue; }
           if (typeof v === 'object') { rowArr.push(JSON.stringify(v)); continue; }
-          if (NUM_FIELDS[key] && v !== '') {
-            var num = parseFloat(v);
-            rowArr.push(isNaN(num) ? String(v) : num);
+          if (NUM_FIELDS[key]) {
+            var n = parseFloat(v);
+            rowArr.push(isNaN(n) ? String(v) : n);
           } else {
             rowArr.push(String(v));
           }
         }
-        allData.push(rowArr);
+        matrix.push(rowArr);
       }
-
-      // Asegurar que el rango tenga exactamente las columnas correctas
-      var range = sheet.getRange(1, 1, allData.length, headers.length);
-      range.setValues(allData);
+      sheet.getRange(1, 1, matrix.length, ncols).setValues(matrix);
       pushed.push(name + '(' + rows.length + ')');
-
     } catch(te) {
-      errors.push(name + ': ' + te.message);
+      failed.push(name + ': ' + te.message);
     }
   }
 
-  // Log de sync
   try {
-    var log = ss.getSheetByName('_sync_log');
-    if (!log) log = ss.insertSheet('_sync_log');
-    log.appendRow([new Date().toISOString(), 'PUSH', errors.length === 0 ? 'OK' : 'PARTIAL', pushed.join(','), errors.join('|')]);
+    var log = ss.getSheetByName('_log');
+    if (!log) log = ss.insertSheet('_log');
+    log.appendRow([new Date().toISOString(), 'PUSH', pushed.join(', '), failed.join('|')]);
   } catch(le) {}
 
-  if (errors.length > 0 && pushed.length === 0) {
-    return res({ok:false, error:'Falló en todas las tablas: ' + errors.join(' | ')});
-  }
-  return res({ok:true, pushed:pushed, errors:errors, timestamp:new Date().toISOString()});
+  if (pushed.length === 0 && failed.length > 0)
+    return err('Push fallo: ' + failed.join(' | '));
+  return ok({pushed: pushed, warnings: failed});
 }
 
 function pullData() {
   var ss;
-  try {
-    ss = SpreadsheetApp.openById(SHEET_ID);
-  } catch(e) {
-    return res({ok:false, error:'No se pudo abrir el Spreadsheet: ' + e.message});
-  }
+  try { ss = SpreadsheetApp.openById(SHEET_ID); }
+  catch(e) { return err('No se pudo abrir el Spreadsheet: ' + e.message); }
 
   var result = {};
   for (var t = 0; t < TABLES.length; t++) {
@@ -1802,36 +1798,57 @@ function pullData() {
       var values = sheet.getDataRange().getValues();
       if (values.length < 2) { result[name] = []; continue; }
 
-      // Leer headers de la primera fila — ignorar columnas con header vacío
+      var firstRow = values[0];
       var headers = [];
-      var validCols = [];
-      for (var h = 0; h < values[0].length; h++) {
-        var hdr = String(values[0][h]).trim();
-        if (hdr !== '') { headers.push(hdr); validCols.push(h); }
+      var colMap  = [];
+
+      // Detectar si headers son corruptos tipo "Columna 1"
+      var corruptCount = 0;
+      for (var h = 0; h < firstRow.length; h++) {
+        var hdr = String(firstRow[h]).trim();
+        if (hdr === '' || /^Columna\s*\d+$/i.test(hdr)) corruptCount++;
       }
+
+      if (corruptCount > 0 && SCHEMA[name]) {
+        // Leer columnas A en adelante por posicion usando el SCHEMA
+        // e ignorar las columnas extra de la derecha con 0s
+        var schema = SCHEMA[name];
+        for (var s = 0; s < schema.length; s++) {
+          headers.push(schema[s]);
+          colMap.push(s);
+        }
+      } else {
+        // Headers normales: leer por nombre ignorando vacios
+        for (var hh = 0; hh < firstRow.length; hh++) {
+          var hd = String(firstRow[hh]).trim();
+          if (hd !== '') { headers.push(hd); colMap.push(hh); }
+        }
+      }
+
+      if (headers.length === 0) { result[name] = []; continue; }
 
       var arr = [];
       for (var i = 1; i < values.length; i++) {
         var row = values[i];
-        // Ignorar filas completamente vacías
         var empty = true;
-        for (var j = 0; j < validCols.length; j++) {
-          if (row[validCols[j]] !== '') { empty = false; break; }
+        for (var ci = 0; ci < colMap.length; ci++) {
+          if (String(row[colMap[ci]] || '').trim() !== '') { empty = false; break; }
         }
         if (empty) continue;
 
         var obj = {};
         for (var k = 0; k < headers.length; k++) {
           var key = headers[k];
-          var v = row[validCols[k]];
+          var col = colMap[k];
+          var v = (col < row.length) ? row[col] : '';
           if (v instanceof Date) {
             v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
           } else if (typeof v === 'string' && v !== '') {
             if (v.charAt(0) === '{' || v.charAt(0) === '[') {
               try { v = JSON.parse(v); } catch(e2) {}
             } else if (NUM_FIELDS[key]) {
-              var parsed = parseFloat(v);
-              if (!isNaN(parsed)) v = parsed;
+              var p2 = parseFloat(v);
+              if (!isNaN(p2)) v = p2;
             }
           }
           obj[key] = v;
@@ -1845,17 +1862,21 @@ function pullData() {
   }
 
   try {
-    var log = ss.getSheetByName('_sync_log');
-    if (!log) log = ss.insertSheet('_sync_log');
+    var log = ss.getSheetByName('_log');
+    if (!log) log = ss.insertSheet('_log');
     log.appendRow([new Date().toISOString(), 'PULL', 'OK']);
   } catch(le) {}
 
-  return res({ok:true, data:result});
+  return ok({data: result});
 }
 
-function res(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
+function ok(data) {
+  data.ok = true;
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+function err(msg) {
+  return ContentService.createTextOutput(JSON.stringify({ok:false, error:msg}))
     .setMimeType(ContentService.MimeType.JSON);
 }`;
 
