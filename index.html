@@ -1540,22 +1540,58 @@ async function connectSheets(){
   const url=document.getElementById('gs-url-input').value.trim();
   const errEl=document.getElementById('gs-err');
   const okEl=document.getElementById('gs-ok');
-  errEl.style.display='none';okEl.style.display='none';
-  if(!url.includes('script.google.com/macros')){errEl.textContent='⚠ URL inválida. Debe ser de Google Apps Script (script.google.com/macros/s/...)';errEl.style.display='block';return;}
+  errEl.style.display='none'; okEl.style.display='none';
+
+  // Validar URL
+  if(!url){errEl.textContent='⚠ Pega la URL del Apps Script primero.';errEl.style.display='block';return;}
+  if(!url.startsWith('https://script.google.com/macros')){
+    errEl.textContent='⚠ URL inválida. Debe empezar con https://script.google.com/macros/s/...';
+    errEl.style.display='block';return;
+  }
+  if(!url.endsWith('/exec')){
+    errEl.textContent='⚠ La URL debe terminar en /exec. Verificá que copiaste la URL completa de "Implementar como app web".';
+    errEl.style.display='block';return;
+  }
+
   localStorage.setItem('fc_gs_url',url);
   setGSStatus('syncing');
+  errEl.style.display='none';
   toast('🔗 Probando conexión...');
-  const res=await GS.ping();
-  if(res&&res.ok){
-    okEl.style.display='block';updateGSUI();
-    await syncToSheets();
-    toast('✅ Google Sheets conectado como base de datos','ok');
-    setTimeout(()=>closeM('modal-gs'),1500);
-  } else {
+
+  // PASO 1: Ping
+  const pingRes = await GS.ping();
+  if(!pingRes){
     localStorage.removeItem('fc_gs_url');
-    errEl.textContent='⚠ Sin respuesta. Verifica la URL y que la implementación tenga acceso "Cualquier persona".';
-    errEl.style.display='block';setGSStatus('off');
+    errEl.innerHTML='❌ <strong>Sin respuesta del servidor.</strong><br>Causas más comunes:<br>• La implementación tiene acceso "Solo yo" → cambiarlo a <strong>"Cualquier persona"</strong><br>• No re-implementaste después de cambiar el código → <strong>Implementar → Nueva versión</strong><br>• La URL es de una versión anterior, no la última';
+    errEl.style.display='block'; setGSStatus('off'); return;
   }
+  if(!pingRes.ok){
+    localStorage.removeItem('fc_gs_url');
+    errEl.innerHTML='❌ <strong>El script respondió con error:</strong> '+(pingRes.error||JSON.stringify(pingRes))+'<br>Revisá que el código esté bien pegado en Apps Script.';
+    errEl.style.display='block'; setGSStatus('off'); return;
+  }
+
+  // Ping OK → conectar
+  okEl.innerHTML='✅ Conexión exitosa. Subiendo datos...';
+  okEl.style.display='block';
+  updateGSUI();
+
+  // PASO 2: Push
+  const data={agentes,ventas,pagos,bonos,gastos,decomisiones,descuentos};
+  const pushRes = await GS.push(data);
+  if(!pushRes||!pushRes.ok){
+    errEl.innerHTML='⚠ Conexión OK pero <strong>falló al guardar datos</strong>.<br>'+(pushRes?.error||'Sin detalles del error')+'<br>Verificá que el SHEET_ID en el script sea correcto y que el Sheet exista.';
+    errEl.style.display='block';
+    okEl.style.display='none';
+    setGSStatus('error');
+    return;
+  }
+
+  // Todo OK
+  okEl.innerHTML='✅ Conectado y datos guardados en Sheets correctamente.';
+  setGSStatus('ok');
+  toast('✅ Google Sheets conectado — '+pushRes.pushed?.join(', '),'ok');
+  setTimeout(()=>closeM('modal-gs'),2000);
 }
 function disconnectSheets(){
   if(!confirm('¿Desconectar Google Sheets? Los datos quedarán solo en este dispositivo.'))return;
