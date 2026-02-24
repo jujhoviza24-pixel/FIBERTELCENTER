@@ -1472,19 +1472,22 @@ const GS = {
   async _req(params){
     try{
       const controller = new AbortController();
-      const timer = setTimeout(()=>controller.abort(), 20000);
-      // Usar POST para evitar el límite de tamaño de URL en GET (~8KB)
+      const timer = setTimeout(()=>controller.abort(), 25000);
+      // Construir body: los valores ya string se dejan como están, objetos se serializan
+      const body = Object.entries(params).map(([k,v])=>
+        encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='string'?v:JSON.stringify(v))
+      ).join('&');
       const r = await fetch(this.url, {
         redirect: 'follow',
         signal: controller.signal,
         method: 'POST',
         headers: {'Content-Type':'application/x-www-form-urlencoded'},
-        body: Object.entries(params).map(([k,v])=>
-          encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):String(v))
-        ).join('&')
+        body: body
       });
       clearTimeout(timer);
-      return JSON.parse(await r.text());
+      const txt = await r.text();
+      try{ return JSON.parse(txt); }
+      catch(pe){ console.warn('GS parse error:',txt.slice(0,200)); return null; }
     }catch(e){
       if(e.name==='AbortError') console.warn('GS timeout');
       else console.warn('GS error:',e.message);
@@ -1492,6 +1495,7 @@ const GS = {
     }
   },
   async ping(){ return await this._req({action:'ping'}); },
+  // data ya es objeto — _req lo serializará una sola vez
   async push(data){ return await this._req({action:'push',data:JSON.stringify(data)}); },
   async pull(){ const r=await this._req({action:'pull'}); return r&&r.ok?r.data:null; }
 };
@@ -1735,19 +1739,25 @@ function pushData(data) {
     var rows = data[name];
     if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
     try {
-      var existing = ss.getSheetByName(name);
-      if (existing) {
-        var allSheets = ss.getSheets();
-        if (allSheets.length > 1) {
-          ss.deleteSheet(existing);
-          SpreadsheetApp.flush();
-        } else {
-          existing.clear();
-        }
-      }
-      var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+      var sheet = ss.getSheetByName(name);
+      if (!sheet) sheet = ss.insertSheet(name);
+
+      // Limpiar todo el contenido existente
+      sheet.clearContents();
+
       var headers = Object.keys(rows[0]);
-      var ncols = headers.length;
+      var ncols   = headers.length;
+      var nrows   = rows.length + 1;
+
+      // Asegurar que la hoja tenga suficientes filas y columnas
+      if (sheet.getMaxRows() < nrows) sheet.insertRowsAfter(sheet.getMaxRows(), nrows - sheet.getMaxRows());
+      if (sheet.getMaxColumns() < ncols) sheet.insertColumnsAfter(sheet.getMaxColumns(), ncols - sheet.getMaxColumns());
+
+      // Si tiene columnas de más, eliminarlas para evitar columnas fantasma
+      if (sheet.getMaxColumns() > ncols) {
+        sheet.deleteColumns(ncols + 1, sheet.getMaxColumns() - ncols);
+      }
+
       var matrix = [headers];
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
@@ -1766,7 +1776,15 @@ function pushData(data) {
         }
         matrix.push(rowArr);
       }
-      sheet.getRange(1, 1, matrix.length, ncols).setValues(matrix);
+
+      // Escribir exactamente el rango correcto
+      sheet.getRange(1, 1, nrows, ncols).setValues(matrix);
+
+      // Limpiar filas sobrantes si había más datos antes
+      if (sheet.getMaxRows() > nrows) {
+        sheet.deleteRows(nrows + 1, sheet.getMaxRows() - nrows);
+      }
+
       pushed.push(name + '(' + rows.length + ')');
     } catch(te) {
       failed.push(name + ': ' + te.message);
