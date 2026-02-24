@@ -1615,8 +1615,12 @@ const getAg=id=>agentes.find(a=>a.id===id)||{nombre:'Desconocido',color:'#555'};
 // Helpers para filtro por mes
 function getMesKey(fecha){const d=new Date(fecha||today());return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function getMesLabel(key){const [y,m]=key.split('-');const MESES=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];return MESES[parseInt(m)]+' '+y;}
-// getMesPeriodo: devuelve la clave del período al que PERTENECE el registro (mesRef si existe, sino fecha)
-function getMesPeriodo(x){return x.mesRef||getMesKey(x.fecha||today());}
+// getMesPeriodo: devuelve YYYY-MM del período al que PERTENECE el registro
+// mesRef ya es una clave YYYY-MM (guardada directamente), fecha es una fecha ISO
+function getMesPeriodo(x){
+  if(x.mesRef && /^\d{4}-\d{2}$/.test(x.mesRef)) return x.mesRef;
+  return getMesKey(x.fecha||today());
+}
 function buildMesFiltro(arr,selId,val){
   const keys=[...new Set(arr.map(x=>getMesPeriodo(x)))].sort().reverse();
   const sel=document.getElementById(selId);if(!sel)return;
@@ -1928,7 +1932,7 @@ function filterNominaMes(v){nomMes=v;renderNomina();}
 function renderNomina(){
   buildSel('p-agente');buildSel('b-agente');buildSel('desc-agente');
   const pgF=nomMes?pagos.filter(p=>getMesKey(p.fecha)===nomMes):pagos;
-  const bnF=nomMes?bonos.filter(b=>getMesKey(b.mesRef||b.fecha||today())===nomMes):bonos;
+  const bnF=nomMes?bonos.filter(b=>getMesPeriodo(b)===nomMes):bonos;
   const dsF=nomMes?descuentos.filter(d=>getMesPeriodo(d)===nomMes):descuentos;
   buildMesFiltro([...pagos,...bonos,...descuentos],'nom-mes-filter',nomMes);
   const agD=agentes.map(ag=>{
