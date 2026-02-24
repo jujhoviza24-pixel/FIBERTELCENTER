@@ -1000,7 +1000,41 @@ select option{background:var(--s2);}
 </div>
 </div>
 
-<!-- MODAL PAGO -->
+<!-- MODAL EDITAR AGENTE -->
+<div class="modal-overlay" id="modal-edit-agente">
+<div class="modal">
+  <div class="modal-x" onclick="closeModals()">✕</div>
+  <div class="modal-title">✏️ Editar Agente</div>
+  <input type="hidden" id="eag-id">
+  <div class="frow">
+    <div class="fg"><label>Nombre completo</label><input type="text" id="eag-nombre" placeholder="Nombre completo"></div>
+    <div class="fg"><label>Fecha de inicio</label><input type="date" id="eag-inicio"></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Rol en el equipo</label>
+      <select id="eag-rol" onchange="updateEditRolInfo()">
+        <option value="Comercial">💼 Comercial — genera ventas</option>
+        <option value="BackOffice">🖥️ BackOffice — soporte interno</option>
+        <option value="Supervisor">👑 Supervisor — gestión del equipo</option>
+      </select>
+    </div>
+    <div class="fg"><label>Meta ventas/mes</label><input type="number" id="eag-meta" placeholder="20"></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Sueldo base (S/)</label><input type="number" id="eag-sueldo" placeholder="1200"></div>
+    <div class="fg"><label>Com. por internet (S/venta)</label><input type="number" id="eag-com-int" placeholder="20"></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label>Com. por móvil (S/venta)</label><input type="number" id="eag-com-mov" placeholder="15"></div>
+    <div class="fg"></div>
+  </div>
+  <div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 13px;font-size:11px;color:var(--txt2);text-transform:none;letter-spacing:normal;line-height:1.6;margin-bottom:8px;" id="eag-rol-info"></div>
+  <div class="macts">
+    <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+    <button class="btn btn-neon" onclick="saveEditAgente()">Guardar cambios</button>
+  </div>
+</div>
+</div>
 <div class="modal-overlay" id="modal-pago">
 <div class="modal">
   <div class="modal-x" onclick="closeModals()">✕</div>
@@ -2182,9 +2216,52 @@ function renderAgentes(){
     <td style="font-family:'DM Mono',monospace;color:var(--amber);">${s.rol==='Comercial'?fmt(s.risk):'—'}</td>
     <td style="font-family:'DM Mono',monospace;color:var(--hot);">${s.rol==='Comercial'?s.decs:'—'}</td>
     <td>${s.rol==='Comercial'?`<div class="pbar" style="width:90px;"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div><div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}%</div>`:fmt(s.ag.sueldo||0)+' base'}</td>
-    <td><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`).join('')}</tbody>`;
+    <td style="display:flex;gap:4px;"><button class="db" onclick="openEditAgente(${s.ag.id})" title="Editar">✏️</button><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`).join('')}</tbody>`;
 }
 function delAgente(id){if(!confirm('¿Eliminar este agente?'))return;agentes=agentes.filter(a=>a.id!==id);saveAll();renderAgentes();toast('🗑️ Agente eliminado');}
+
+function openEditAgente(id){
+  const ag=agentes.find(a=>a.id===id);if(!ag)return;
+  document.getElementById('eag-id').value=id;
+  document.getElementById('eag-nombre').value=ag.nombre||'';
+  document.getElementById('eag-inicio').value=ag.inicio||'';
+  document.getElementById('eag-rol').value=ag.rol||'Comercial';
+  document.getElementById('eag-meta').value=ag.meta||'';
+  document.getElementById('eag-sueldo').value=ag.sueldo||'';
+  document.getElementById('eag-com-int').value=ag.comInt||'';
+  document.getElementById('eag-com-mov').value=ag.comMov||'';
+  updateEditRolInfo();
+  openM('modal-edit-agente');
+}
+function updateEditRolInfo(){
+  const rol=document.getElementById('eag-rol')?.value||'Comercial';
+  const info=document.getElementById('eag-rol-info');
+  if(!info)return;
+  const msgs={
+    'Comercial':'💼 <strong>Comercial:</strong> aparece en el selector de ventas. Sus comisiones son ingreso del negocio.',
+    'BackOffice':'🖥️ <strong>BackOffice:</strong> no genera ventas. Su sueldo se contabiliza como gasto operativo.',
+    'Supervisor':'👑 <strong>Supervisor:</strong> gestiona el equipo. Su sueldo se contabiliza como gasto operativo.'
+  };
+  info.innerHTML=msgs[rol]||msgs['Comercial'];
+}
+function saveEditAgente(){
+  const id=parseInt(document.getElementById('eag-id').value);
+  const idx=agentes.findIndex(a=>a.id===id);if(idx<0)return;
+  const nombre=document.getElementById('eag-nombre').value.trim();
+  if(!nombre){toast('⚠️ Escribe el nombre');return;}
+  agentes[idx]={
+    ...agentes[idx],
+    nombre,
+    rol:document.getElementById('eag-rol').value||'Comercial',
+    inicio:document.getElementById('eag-inicio').value,
+    sueldo:parseFloat(document.getElementById('eag-sueldo').value)||0,
+    meta:parseInt(document.getElementById('eag-meta').value)||0,
+    comInt:parseFloat(document.getElementById('eag-com-int').value)||0,
+    comMov:parseFloat(document.getElementById('eag-com-mov').value)||0,
+  };
+  saveAll();closeModals();renderAgentes();
+  toast('✅ Agente actualizado','ok');
+}
 
 /* ─── GASTOS ─── */
 function renderGastos(){
