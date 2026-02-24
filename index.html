@@ -1516,28 +1516,35 @@ async function syncBackground(){
   try {
     const timeoutPromise = new Promise(resolve=>setTimeout(()=>resolve(null),10000));
     const remote = await Promise.race([GS.pull(), timeoutPromise]);
-    if(remote && remote.agentes && remote.agentes.length){
+    const hasData = remote && (
+      (remote.agentes && remote.agentes.length) ||
+      (remote.ventas   && remote.ventas.length)  ||
+      (remote.pagos    && remote.pagos.length)    ||
+      (remote.bonos    && remote.bonos.length)    ||
+      (remote.gastos   && remote.gastos.length)
+    );
+    if(hasData){
       const norm=normalizeSheets(remote);
-      agentes=norm.agentes;
-      ventas=norm.ventas||ventas;
-      pagos=norm.pagos||pagos;
-      bonos=norm.bonos||bonos;
-      gastos=norm.gastos||gastos;
-      decomisiones=norm.decomisiones||decomisiones;
-      descuentos=norm.descuentos||descuentos;
+      // Solo sobreescribe si la tabla remota tiene datos — preserva datos locales si Sheets está vacío para esa tabla
+      if(norm.agentes   && norm.agentes.length)   agentes=norm.agentes;
+      if(norm.ventas    && norm.ventas.length)    ventas=norm.ventas;
+      if(norm.pagos     && norm.pagos.length)     pagos=norm.pagos;
+      if(norm.bonos     && norm.bonos.length)     bonos=norm.bonos;
+      if(norm.gastos    && norm.gastos.length)    gastos=norm.gastos;
+      if(norm.decomisiones && norm.decomisiones.length) decomisiones=norm.decomisiones;
+      if(norm.descuentos   && norm.descuentos.length)   descuentos=norm.descuentos;
       sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);
       sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
       setGSStatus('ok');
       renderDashboard();
-      toast('☁️ Sincronizado — '+agentes.length+' agentes · '+ventas.length+' ventas','ok');
-    } else if(!remote || (!remote.agentes?.length && !remote.ventas?.length)){
-      // Sheets vacío o sin respuesta — NO auto-push para evitar duplicar
-      // El usuario debe usar "Subir a Sheets" manualmente si quiere subir
-      setGSStatus(remote ? 'ok' : 'error');
-      if(!remote) toast('📴 Sin conexión a Sheets — datos locales','warn');
+      const total=agentes.length+ventas.length+pagos.length;
+      toast('☁️ Sincronizado — '+agentes.length+' agentes · '+ventas.length+' ventas · '+pagos.length+' pagos','ok');
+    } else if(!remote){
+      setGSStatus('error');
+      toast('📴 Sin conexión a Sheets — datos locales','warn');
     } else {
-      setGSStatus(remote ? 'ok' : 'error');
-      if(!remote) toast('📴 Sin conexión a Sheets — datos locales','warn');
+      // Sheets respondió pero todas las tablas están vacías
+      setGSStatus('ok');
     }
   } catch(e){
     setGSStatus('error');
@@ -1695,6 +1702,14 @@ function doGet(e) {
   }
 }
 
+// Campos que deben guardarse como número (no string) en Sheets
+var NUM_FIELDS = ['id','agenteId','ventaId','monto','comision','sueldo','meta','comInt','comMov','cantidad'];
+
+function isNumField(key) {
+  for (var n = 0; n < NUM_FIELDS.length; n++) { if (NUM_FIELDS[n] === key) return true; }
+  return false;
+}
+
 function pushData(data) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   for (var t = 0; t < TABLES.length; t++) {
@@ -1710,17 +1725,24 @@ function pushData(data) {
       var row = rows[i];
       var rowArr = [];
       for (var j = 0; j < headers.length; j++) {
-        var v = row[headers[j]];
+        var key = headers[j];
+        var v = row[key];
         if (v === null || v === undefined) { rowArr.push(''); continue; }
         if (typeof v === 'object') { rowArr.push(JSON.stringify(v)); continue; }
-        rowArr.push(String(v));
+        // Preservar tipo numérico para campos clave — evita que al leer de vuelta vengan como string
+        if (isNumField(key) && v !== '') {
+          var num = parseFloat(v);
+          rowArr.push(isNaN(num) ? v : num);
+        } else {
+          rowArr.push(v === false ? 'false' : v === true ? 'true' : String(v));
+        }
       }
       sheet.appendRow(rowArr);
     }
   }
   var log = ss.getSheetByName('_sync_log');
   if (!log) log = ss.insertSheet('_sync_log');
-  log.appendRow([new Date().toISOString(), 'PUSH', 'OK']);
+  log.appendRow([new Date().toISOString(), 'PUSH', 'OK', JSON.stringify(Object.keys(data))]);
   return res({ok:true, pushed:true, timestamp:new Date().toISOString()});
 }
 
@@ -1743,13 +1765,20 @@ function pullData() {
       if (empty) continue;
       var obj = {};
       for (var k = 0; k < headers.length; k++) {
+        var key = headers[k];
         var v = row[k];
         if (v instanceof Date) {
           v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        } else if (typeof v === 'string' && (v.charAt(0) === '{' || v.charAt(0) === '[')) {
-          try { v = JSON.parse(v); } catch(e2) {}
+        } else if (typeof v === 'string' && v !== '') {
+          if (v.charAt(0) === '{' || v.charAt(0) === '[') {
+            try { v = JSON.parse(v); } catch(e2) {}
+          } else if (isNumField(key)) {
+            // Forzar a número si es campo numérico y vino como string
+            var parsed = parseFloat(v);
+            if (!isNaN(parsed)) v = parsed;
+          }
         }
-        obj[headers[k]] = v;
+        obj[key] = v;
       }
       arr.push(obj);
     }
