@@ -704,13 +704,19 @@ select option{background:var(--s2);}
 <!-- AGENTES -->
 <div class="page" id="page-agentes">
   <div class="ph">
-    <div><div class="ph-eye">Equipo comercial</div><h2>Agentes</h2><p>Rendimiento y gestión del equipo de ventas</p></div>
+    <div><div class="ph-eye">Equipo comercial</div><h2>Agentes</h2><p>Rendimiento, costos y rentabilidad del equipo</p></div>
     <div class="ph-acts"><button class="btn btn-neon" onclick="openModalAg()">+ Nuevo agente</button></div>
   </div>
   <div class="aperf" id="agent-cards"></div>
+  <!-- Desglose de costos compartidos -->
+  <div class="card" style="margin-bottom:16px;" id="ag-costo-compartido-card">
+    <div class="card-title">💡 Estructura de Costos del Período</div>
+    <div class="card-sub">// CÓMO SE DISTRIBUYEN LOS GASTOS ENTRE COMERCIALES</div>
+    <div id="ag-costo-compartido" style="margin-top:12px;"></div>
+  </div>
   <div class="tcard">
     <div class="tbar"><div class="tbar-title">Ranking de Agentes</div></div>
-    <table><thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Com. generada</th><th>En riesgo</th><th>Decomisiones</th><th>Rendimiento/Sueldo</th><th></th></tr></thead><tbody id="ag-table"></tbody></table>
+    <table><thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Ingresos</th><th>Costo total</th><th>Rentabilidad</th><th>Meta %</th><th></th></tr></thead><tbody id="ag-table"></tbody></table>
   </div>
 </div>
 
@@ -752,7 +758,7 @@ select option{background:var(--s2);}
 <!-- ANÁLISIS IA -->
 <div class="page" id="page-analisis">
   <div class="ph">
-    <div><div class="ph-eye">Inteligencia empresarial</div><h2>Análisis & Recomendaciones</h2><p>Comparativa mensual y plan de acción</p></div>
+    <div><div class="ph-eye">Inteligencia empresarial</div><h2>Análisis & Recomendaciones</h2><p>Comparativa mensual, campañas y plan de acción</p></div>
     <div class="ph-acts">
       <button class="btn btn-neon" onclick="renderAnalisis()">🔄 Actualizar análisis</button>
     </div>
@@ -760,13 +766,29 @@ select option{background:var(--s2);}
 
   <!-- COMPARATIVA MES ACTUAL vs ANTERIOR -->
   <div class="card" style="margin-bottom:16px;">
-    <div class="card-title">📊 Comparativa: Este Mes vs Mes Anterior</div>
+    <div class="card-title">📊 Comparativa: Período Seleccionado vs Anterior</div>
     <div class="card-sub">// RENDIMIENTO RELATIVO</div>
     <div id="analisis-comparativa" style="margin-top:12px;"></div>
   </div>
 
   <!-- KPIs DEL MES -->
   <div class="metrics" style="margin-bottom:16px;" id="analisis-kpis"></div>
+
+  <!-- KPIs ADICIONALES -->
+  <div class="metrics-3" style="margin-bottom:16px;" id="analisis-kpis2"></div>
+
+  <!-- GRÁFICOS INGRESO/EGRESO -->
+  <div class="charts2" style="margin-bottom:16px;">
+    <div class="card"><div class="card-title">Tendencia 6 Meses</div><div class="card-sub">// INGRESOS · EGRESOS · BALANCE</div><canvas id="analisisFlowChart" height="185"></canvas></div>
+    <div class="card"><div class="card-title">Composición de Egresos</div><div class="card-sub">// NÓMINA · GASTOS · DECOMIS.</div><canvas id="analisisEgChart" height="185"></canvas></div>
+  </div>
+
+  <!-- ANÁLISIS DE CAMPAÑAS -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">📡 Análisis por Campaña</div>
+    <div class="card-sub">// RENTABILIDAD · DECOMISIÓN · COMISIÓN PROMEDIO</div>
+    <div id="analisis-campanas" style="margin-top:12px;overflow-x:auto;"></div>
+  </div>
 
   <!-- SALUD DEL NEGOCIO -->
   <div class="card" style="margin-bottom:16px;">
@@ -1796,59 +1818,150 @@ function getEgMes(mes){return getPagosMes(mes).reduce((s,p)=>s+p.monto,0)+getBon
 function renderAnalisis(){
   buildGlobalMesFiltro();
   const now=new Date();
-  const curMes=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
-  const prevDate=new Date(now.getFullYear(),now.getMonth()-1,1);
+  const todayMes=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const curMes=globalMes||todayMes;
+  const [cy,cm]=curMes.split('-').map(Number);
+  const prevDate=new Date(cy,cm-2,1);
   const prevMes=prevDate.getFullYear()+'-'+String(prevDate.getMonth()+1).padStart(2,'0');
+
   const ingCur=getIngMes(curMes),egCur=getEgMes(curMes),balCur=ingCur-egCur;
   const vCur=getVentasMes(curMes),dcCur=getDecosMes(curMes);
   const ingPrev=getIngMes(prevMes),egPrev=getEgMes(prevMes),balPrev=ingPrev-egPrev;
   const vPrev=getVentasMes(prevMes),dcPrev=getDecosMes(prevMes);
+  const margen=ingCur>0?(balCur/ingCur*100):0;
+  const tasa_deco=vCur.length>0?(dcCur.length/vCur.length*100):0;
+  const com_prom=vCur.length>0?(ingCur/vCur.length):0;
+  const nomCur=getPagosMes(curMes).reduce((s,p)=>s+p.monto,0)+getBonosMes(curMes).reduce((s,b)=>s+b.monto,0);
+  const gasCur=getGastosMes(curMes).reduce((s,g)=>s+g.monto,0);
   const pct=(a,b)=>b===0?null:((a-b)/b*100);
   const arrow=(p)=>p===null?'—':p>=0?`▲ +${p.toFixed(1)}%`:`▼ ${p.toFixed(1)}%`;
   const arrowColor=(p)=>p===null?'var(--txt3)':p>=0?'var(--neon)':'var(--hot)';
+
+  // ── COMPARATIVA ──
   const metricas=[
     {label:'Ingresos',cur:ingCur,prev:ingPrev,fmt:true,mejor:'mayor'},
     {label:'Egresos',cur:egCur,prev:egPrev,fmt:true,mejor:'menor'},
     {label:'Balance',cur:balCur,prev:balPrev,fmt:true,mejor:'mayor'},
+    {label:'Margen %',cur:margen,prev:ingPrev>0?(balPrev/ingPrev*100):0,fmt:false,suffix:'%',mejor:'mayor'},
     {label:'Ventas',cur:vCur.length,prev:vPrev.length,mejor:'mayor'},
     {label:'Decomisiones',cur:dcCur.length,prev:dcPrev.length,mejor:'menor'},
   ];
   document.getElementById('analisis-comparativa').innerHTML=`
+    <div style="font-size:10px;color:var(--txt3);margin-bottom:8px;text-transform:none;">
+      Comparando <strong style="color:var(--neon);">${getMesLabel(curMes)}</strong> vs <strong style="color:var(--txt2);">${getMesLabel(prevMes)}</strong>
+    </div>
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr>
         <th style="text-align:left;padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">MÉTRICA</th>
-        <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">${getMesLabel(prevMes)}</th>
+        <th style="padding:8px;color:var(--txt2);font-size:9px;letter-spacing:2px;">${getMesLabel(prevMes)}</th>
         <th style="padding:8px;color:var(--neon);font-size:9px;letter-spacing:2px;">${getMesLabel(curMes)}</th>
         <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">VARIACIÓN</th>
         <th style="padding:8px;color:var(--txt3);font-size:9px;letter-spacing:2px;">ESTADO</th>
       </tr></thead>
-      <tbody>${metricas.map(m=>{const p=pct(m.cur,m.prev);const bueno=(m.mejor==='mayor'&&(p===null||p>=0))||(m.mejor==='menor'&&(p===null||p<=0));const estado=m.cur===0&&m.prev===0?'Sin datos':bueno?'✅ Mejora':'⚠️ Atención';return`<tr style="border-bottom:1px solid var(--b1);">
+      <tbody>${metricas.map(m=>{const p=pct(m.cur,m.prev);const bueno=(m.mejor==='mayor'&&(p===null||p>=0))||(m.mejor==='menor'&&(p===null||p<=0));const estado=m.cur===0&&m.prev===0?'Sin datos':bueno?'✅ Mejora':'⚠️ Atención';
+        const curFmt=m.fmt?fmt(m.cur):m.cur+(m.suffix||'');
+        const prevFmt=m.fmt?fmt(m.prev):m.prev+(m.suffix||'');
+        return`<tr style="border-bottom:1px solid var(--b1);">
           <td style="padding:10px 8px;font-weight:600;font-size:12px;">${m.label}</td>
-          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--txt2);">${m.fmt?fmt(m.prev):m.prev}</td>
-          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:var(--neon);">${m.fmt?fmt(m.cur):m.cur}</td>
+          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--txt2);">${prevFmt}</td>
+          <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:var(--neon);">${curFmt}</td>
           <td style="padding:10px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:${arrowColor(p)};">${arrow(p)}</td>
           <td style="padding:10px 8px;text-align:center;font-size:11px;text-transform:none;">${estado}</td>
         </tr>`;}).join('')}</tbody>
     </table></div>
     ${ingCur===0&&ingPrev===0?'<div class="empty" style="margin-top:10px;">📋 Registra ventas para ver la comparativa</div>':''}`;
-  const margen=ingCur>0?(balCur/ingCur*100):0;
-  const tasa_deco=vCur.length>0?(dcCur.length/vCur.length*100):0;
-  const com_prom=vCur.length>0?(ingCur/vCur.length):0;
+
+  // ── KPIs PRINCIPALES ──
   document.getElementById('analisis-kpis').innerHTML=[
-    {ico:'💰',lbl:'Ingresos del mes',val:fmt(ingCur),sub:'comisiones cobradas',c:'var(--neon)'},
-    {ico:'📉',lbl:'Egresos del mes',val:fmt(egCur),sub:'nómina + gastos',c:'var(--hot)'},
+    {ico:'💰',lbl:'Ingresos '+getMesLabel(curMes),val:fmt(ingCur),sub:'comisiones cobradas',c:'var(--neon)'},
+    {ico:'📉',lbl:'Egresos del período',val:fmt(egCur),sub:'nómina + gastos',c:'var(--hot)'},
     {ico:'📊',lbl:'Margen neto',val:margen.toFixed(1)+'%',sub:margen>=20?'✅ Saludable':margen>=0?'⚠️ Por mejorar':'🔴 Negativo',c:margen>=20?'var(--neon)':margen>=0?'var(--amber)':'var(--hot)'},
-    {ico:'🏆',lbl:'Ventas del mes',val:vCur.length,sub:'contratos cerrados',c:'var(--blue)'},
+    {ico:'🏆',lbl:'Ventas del período',val:vCur.length,sub:'contratos cerrados',c:'var(--blue)'},
     {ico:'⚠️',lbl:'Tasa decomisión',val:tasa_deco.toFixed(1)+'%',sub:tasa_deco<=10?'✅ Controlada':tasa_deco<=20?'⚠️ Revisar':'🔴 Alta',c:tasa_deco<=10?'var(--neon)':tasa_deco<=20?'var(--amber)':'var(--hot)'},
-    {ico:'🎯',lbl:'Comisión promedio',val:fmt(com_prom),sub:'por venta este mes',c:'var(--purple)'},
+    {ico:'🎯',lbl:'Comisión promedio',val:fmt(com_prom),sub:'por venta',c:'var(--purple)'},
   ].map(k=>`<div class="mc" style="cursor:default;"><div class="mc-lbl">${k.lbl}</div><div class="mc-val" style="color:${k.c};font-size:22px;">${k.val}</div><div class="mc-sub" style="text-transform:none;">${k.sub}</div><div class="mc-ico">${k.ico}</div></div>`).join('');
+
+  // ── KPIs ADICIONALES ──
+  const ticketMax=vCur.length?Math.max(...vCur.map(v=>v.comision)):0;
+  const ticketMin=vCur.length?Math.min(...vCur.map(v=>v.comision)):0;
+  const nomPct=ingCur>0?(nomCur/ingCur*100):0;
+  const gasPct=ingCur>0?(gasCur/ingCur*100):0;
+  const comerActivos=agentes.filter(a=>(a.rol||'Comercial')==='Comercial').length;
+  const ventasPorComer=comerActivos>0?(vCur.length/comerActivos):0;
+  document.getElementById('analisis-kpis2').innerHTML=[
+    {ico:'⬆️',lbl:'Comisión máxima',val:fmt(ticketMax),sub:'venta más alta del período',c:'var(--neon)'},
+    {ico:'⬇️',lbl:'Comisión mínima',val:fmt(ticketMin),sub:'venta más baja del período',c:'var(--txt2)'},
+    {ico:'👥',lbl:'Nómina % ingresos',val:nomPct.toFixed(1)+'%',sub:nomPct<=60?'✅ Controlada':'⚠️ Alta',c:nomPct<=60?'var(--neon)':'var(--hot)'},
+    {ico:'🏢',lbl:'Gastos op. % ingresos',val:gasPct.toFixed(1)+'%',sub:gasPct<=20?'✅ Eficiente':'⚠️ Revisar',c:gasPct<=20?'var(--neon)':'var(--amber)'},
+    {ico:'📈',lbl:'Ventas por comercial',val:ventasPorComer.toFixed(1),sub:'promedio del período',c:'var(--blue)'},
+    {ico:'💵',lbl:'Ingreso por venta neto',val:ingCur>0&&vCur.length>0?fmt((ingCur-egCur)/vCur.length):'—',sub:'balance / ventas',c:balCur>=0?'var(--neon)':'var(--hot)'},
+  ].map(k=>`<div class="mc" style="cursor:default;"><div class="mc-lbl">${k.lbl}</div><div class="mc-val" style="color:${k.c};font-size:20px;">${k.val}</div><div class="mc-sub" style="text-transform:none;">${k.sub}</div><div class="mc-ico">${k.ico}</div></div>`).join('');
+
+  // ── GRÁFICOS TENDENCIA ──
+  dc('analisisFlow'); dc('analisisEg');
+  const labels=monthLabels(6);
+  const ingD=mTotals(ventas,'comision',6);
+  const egD=Array.from({length:6},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);const yr=d.getFullYear(),mo=d.getMonth();return [...pagos,...bonos,...gastos].filter(x=>{const xd=new Date(x.mesRef?x.mesRef+'-01':x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x.monto||0),0);});
+  const balD=ingD.map((v,i)=>v-egD[i]);
+  charts['analisisFlow']=new Chart(document.getElementById('analisisFlowChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Ingresos',data:ingD,backgroundColor:'rgba(0,255,225,.55)',borderRadius:5,borderSkipped:false},{label:'Egresos',data:egD,backgroundColor:'rgba(255,45,110,.45)',borderRadius:5,borderSkipped:false},{label:'Balance',data:balD,type:'line',borderColor:'rgba(77,166,255,.9)',borderWidth:2,pointRadius:3,fill:false,tension:.3,yAxisID:'y'}]},options:{...chartOpts(),scales:{...chartOpts().scales,y:{...chartOpts().scales.y}}}});
+  const nomAll=getPagosMes(curMes).reduce((s,p)=>s+p.monto,0)+getBonosMes(curMes).reduce((s,b)=>s+b.monto,0);
+  const gasAll=getGastosMes(curMes).reduce((s,g)=>s+g.monto,0);
+  const decAll=getDecosMes(curMes).reduce((s,d)=>s+d.monto,0);
+  if(nomAll+gasAll+decAll>0){charts['analisisEg']=new Chart(document.getElementById('analisisEgChart').getContext('2d'),{type:'doughnut',data:{labels:['Nómina & Bonos','Gastos Operativos','Decomisiones'],datasets:[{data:[nomAll,gasAll,decAll],backgroundColor:['rgba(77,166,255,.7)','rgba(255,176,32,.7)','rgba(255,45,110,.7)'],borderWidth:0,hoverOffset:5}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10,family:'DM Sans'},padding:7,boxWidth:8}}},cutout:'65%'}});}
+
+  // ── ANÁLISIS DE CAMPAÑAS ──
+  const camps={};
+  vCur.forEach(v=>{
+    const c=v.campana||'Sin campaña';
+    if(!camps[c]) camps[c]={ventas:0,com:0,decos:0,comisiones:[]};
+    camps[c].ventas++;
+    camps[c].com+=v.comision;
+    camps[c].comisiones.push(v.comision);
+    if(decomisiones.find(d=>d.ventaId===v.id)) camps[c].decos++;
+  });
+  const campRows=Object.entries(camps).map(([nombre,d])=>{
+    const promCom=d.ventas>0?(d.com/d.ventas):0;
+    const tasaDeco=d.ventas>0?(d.decos/d.ventas*100):0;
+    const maxCom=Math.max(...d.comisiones);
+    return{nombre,ventas:d.ventas,com:d.com,promCom,tasaDeco,decos:d.decos,maxCom};
+  }).sort((a,b)=>b.com-a.com);
+  document.getElementById('analisis-campanas').innerHTML=campRows.length?`
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th style="text-align:left;padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">CAMPAÑA</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">VENTAS</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">TOTAL COM.</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">PROM. COM.</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">MÁX. COM.</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">DECOS</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">TASA DECO</th>
+        <th style="padding:8px 6px;color:var(--txt3);font-size:9px;letter-spacing:2px;">ESTADO</th>
+      </tr></thead>
+      <tbody>${campRows.map((r,i)=>{
+        const decoColor=r.tasaDeco<=10?'var(--neon)':r.tasaDeco<=20?'var(--amber)':'var(--hot)';
+        const rank=i===0?'🥇 ':i===1?'🥈 ':i===2?'🥉 ':'';
+        return`<tr style="border-bottom:1px solid var(--b1);">
+          <td style="padding:10px 6px;font-weight:600;font-size:12px;text-transform:none;">${rank}${r.nombre}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;">${r.ventas}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--neon);font-weight:700;">${fmt(r.com)}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--blue);">${fmt(r.promCom)}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--purple);">${fmt(r.maxCom)}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--hot);">${r.decos}</td>
+          <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:${decoColor};">${r.tasaDeco.toFixed(1)}%</td>
+          <td style="padding:10px 6px;text-align:center;font-size:11px;">${r.tasaDeco<=10?'✅ Estable':r.tasaDeco<=20?'⚠️ Vigilar':'🔴 Riesgo alto'}</td>
+        </tr>`;}).join('')}</tbody>
+    </table>`:
+    '<div class="empty">📡 Sin ventas en el período seleccionado para analizar campañas</div>';
+
+  // ── SALUD DEL NEGOCIO ──
   const checks=[
-    {label:'Margen neto ≥ 20%',ok:margen>=20,val:`${margen.toFixed(1)}%`,rec:margen<0?'Egresos superan ingresos. Reducir costos es urgente.':margen<20?'Aumenta ventas o reduce gastos para llegar al 20%.':'Excelente margen.'},
-    {label:'Ventas ≥ mes anterior',ok:vCur.length>=vPrev.length,val:`${vCur.length} vs ${vPrev.length}`,rec:vCur.length<vPrev.length?`Caíste ${vPrev.length-vCur.length} ventas. Revisar seguimiento a leads.`:'Crecimiento sostenido.'},
+    {label:'Margen neto ≥ 20%',ok:margen>=20,val:`${margen.toFixed(1)}%`,rec:margen<0?'Egresos superan ingresos. Reducir costos es urgente.':margen<20?`Necesitás ${fmt(ingCur*0.20-balCur)} más de balance para llegar al 20%.`:'Excelente margen.'},
+    {label:'Ventas ≥ mes anterior',ok:vCur.length>=vPrev.length,val:`${vCur.length} vs ${vPrev.length}`,rec:vCur.length<vPrev.length?`Caíste ${vPrev.length-vCur.length} ventas vs ${getMesLabel(prevMes)}.`:'Crecimiento sostenido.'},
     {label:'Tasa decomisión ≤ 10%',ok:tasa_deco<=10,val:`${tasa_deco.toFixed(1)}%`,rec:tasa_deco>10?'Revisar calidad de leads y proceso de instalación.':'Cartera bien mantenida.'},
-    {label:'Balance positivo',ok:balCur>=0,val:fmt(balCur),rec:balCur<0?'Gastás más de lo que ingresás. Revisar nómina y gastos.':'El negocio está generando excedente.'},
-    {label:'Egresos ≤ 70% de ingresos',ok:ingCur===0||(egCur/ingCur)<=0.70,val:ingCur>0?`${(egCur/ingCur*100).toFixed(1)}%`:'—',rec:ingCur>0&&egCur/ingCur>0.70?'Estructura de costos pesada. Revisar gastos fijos.':'Estructura de costos saludable.'},
+    {label:'Balance positivo',ok:balCur>=0,val:fmt(balCur),rec:balCur<0?'Gastás más de lo que ingresás.':'El negocio genera excedente.'},
+    {label:'Nómina ≤ 60% de ingresos',ok:ingCur===0||(nomCur/ingCur)<=0.60,val:ingCur>0?`${(nomCur/ingCur*100).toFixed(1)}%`:'—',rec:ingCur>0&&nomCur/ingCur>0.60?'Nómina pesada respecto a ingresos. Revisar estructura salarial.':'Nómina proporcionada.'},
+    {label:'Gastos op. ≤ 20% de ingresos',ok:ingCur===0||(gasCur/ingCur)<=0.20,val:ingCur>0?`${(gasCur/ingCur*100).toFixed(1)}%`:'—',rec:ingCur>0&&gasCur/ingCur>0.20?'Gastos operativos altos. Revisar gastos fijos no esenciales.':'Gastos operativos controlados.'},
   ];
   document.getElementById('analisis-salud').innerHTML=checks.map(c=>`
     <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--b1);">
@@ -1861,16 +1974,23 @@ function renderAnalisis(){
         <div style="font-size:11px;color:var(--txt2);text-transform:none;letter-spacing:normal;">${c.rec}</div>
       </div>
     </div>`).join('');
+
+  // ── RECOMENDACIONES ──
   const recs=[];
-  if(balCur<0) recs.push({p:1,ico:'🚨',titulo:'URGENTE: Balance negativo este mes',desc:`Gastás S/${fmt(Math.abs(balCur))} más de lo que ingresás. (1) Congelar gastos no esenciales. (2) Escalonar pagos de nómina. (3) Acelerar cobro de comisiones pendientes.`,color:'var(--hot)'});
-  if(tasa_deco>20) recs.push({p:1,ico:'🚨',titulo:`URGENTE: Tasa de decomisión muy alta (${tasa_deco.toFixed(1)}%)`,desc:'Más de 1 de cada 5 ventas se cancela. Implementar checklist de calificación antes de cerrar contrato y mejorar seguimiento post-instalación.',color:'var(--hot)'});
-  if(vCur.length<vPrev.length&&vPrev.length>0) recs.push({p:2,ico:'⚠️',titulo:`Caída de ${vPrev.length-vCur.length} ventas vs mes anterior`,desc:`${vPrev.length} ventas el mes pasado vs ${vCur.length} este mes. Revisar pipeline de leads, motivación del equipo y si hubo cambios en campañas activas.`,color:'var(--amber)'});
-  if(margen>=0&&margen<20&&ingCur>0) recs.push({p:2,ico:'⚠️',titulo:`Margen del ${margen.toFixed(1)}% — objetivo ≥ 20%`,desc:`Necesitás ganar S/${fmt(ingCur*0.20-balCur)} más (o gastar esa cifra menos) para llegar al margen saludable. Apuntar a productos de mayor comisión o reducir gastos operativos.`,color:'var(--amber)'});
-  if(ingCur>0&&egCur/ingCur>0.70) recs.push({p:2,ico:'📊',titulo:`Egresos al ${(egCur/ingCur*100).toFixed(0)}% de ingresos`,desc:`Por cada S/100 que ingresa, S/${(egCur/ingCur*100).toFixed(0)} se va en costos. Revisar si la nómina está alineada con la producción y si hay gastos recurrentes que se puedan negociar.`,color:'var(--amber)'});
-  if(vCur.length>=vPrev.length&&margen>=20&&balCur>0) recs.push({p:3,ico:'🚀',titulo:'Mes sólido — momento de escalar',desc:`${vCur.length} ventas y margen del ${margen.toFixed(1)}%. Ahora: (1) Establecer meta más alta para el próximo mes. (2) Evaluar incorporar un agente más. (3) Alimentar fondo de reserva anti-decomisiones (recomendado: ${fmt(ingCur*0.20)}).`,color:'var(--neon)'});
-  const agRanking=agentes.map(ag=>{const aVentas=getVentasMes(curMes).filter(v=>v.agenteId===ag.id);return{ag,ventas:aVentas.length};}).sort((a,b)=>b.ventas-a.ventas);
-  if(agRanking.length>1){const top=agRanking[0],bot=agRanking[agRanking.length-1];if(top.ventas>0&&bot.ventas<top.ventas*0.5) recs.push({p:3,ico:'👥',titulo:`Brecha de rendimiento: ${top.ag.nombre} lidera con ${top.ventas} vs ${bot.ventas} de ${bot.ag.nombre}`,desc:`Considera que ${top.ag.nombre} comparta sus técnicas con el equipo. Una reunión semanal de casos exitosos puede elevar el rendimiento promedio.`,color:'var(--blue)'});}
-  if(recs.length===0) recs.push({p:3,ico:'📋',titulo:'Registra más datos para obtener recomendaciones',desc:'A medida que cargues ventas, gastos y pagos, este panel generará un plan de acción específico para tu negocio.',color:'var(--txt3)'});
+  if(balCur<0) recs.push({p:1,ico:'🚨',titulo:'URGENTE: Balance negativo en '+getMesLabel(curMes),desc:`Gastás ${fmt(Math.abs(balCur))} más de lo que ingresás. (1) Congelar gastos no esenciales. (2) Escalonar pagos de nómina. (3) Revisar si hay comisiones pendientes de cobrar.`,color:'var(--hot)'});
+  if(tasa_deco>20) recs.push({p:1,ico:'🚨',titulo:`URGENTE: Tasa de decomisión muy alta (${tasa_deco.toFixed(1)}%)`,desc:'Más de 1 de cada 5 ventas se cancela. Implementar checklist de calificación antes de cerrar contrato.',color:'var(--hot)'});
+  // Campaña con mayor tasa de deco
+  const campProblema=campRows.find(c=>c.tasaDeco>20&&c.ventas>=3);
+  if(campProblema) recs.push({p:1,ico:'📡',titulo:`Campaña "${campProblema.nombre}" con ${campProblema.tasaDeco.toFixed(0)}% de decomisión`,desc:`${campProblema.decos} de ${campProblema.ventas} ventas canceladas. Evaluar si esta campaña es rentable o si debe ser revisada/abandonada.`,color:'var(--hot)'});
+  if(vCur.length<vPrev.length&&vPrev.length>0) recs.push({p:2,ico:'⚠️',titulo:`Caída de ${vPrev.length-vCur.length} ventas vs ${getMesLabel(prevMes)}`,desc:`${vPrev.length} ventas en ${getMesLabel(prevMes)} vs ${vCur.length} en ${getMesLabel(curMes)}. Revisar pipeline y motivación del equipo.`,color:'var(--amber)'});
+  if(margen>=0&&margen<20&&ingCur>0) recs.push({p:2,ico:'⚠️',titulo:`Margen del ${margen.toFixed(1)}% — objetivo ≥ 20%`,desc:`Necesitás ganar ${fmt(ingCur*0.20-balCur)} más (o reducir ese costo) para llegar al margen saludable.`,color:'var(--amber)'});
+  if(nomCur/ingCur>0.60&&ingCur>0) recs.push({p:2,ico:'📊',titulo:`Nómina al ${(nomCur/ingCur*100).toFixed(0)}% de ingresos`,desc:`Por cada S/100 de comisiones, S/${(nomCur/ingCur*100).toFixed(0)} se va en sueldos. Si hay comerciales con bajo rendimiento este mes, revisar estructura.`,color:'var(--amber)'});
+  // Mejor campaña
+  if(campRows.length>0){const best=campRows[0];recs.push({p:3,ico:'🚀',titulo:`Campaña "${best.nombre}" lidera: ${best.ventas} ventas y ${fmt(best.com)}`,desc:`Comisión promedio de ${fmt(best.promCom)}. Si los recursos son limitados, concentrar esfuerzo en esta campaña primero.`,color:'var(--neon)'});}
+  if(vCur.length>=vPrev.length&&margen>=20&&balCur>0) recs.push({p:3,ico:'🏆',titulo:'Mes sólido — momento de escalar',desc:`${vCur.length} ventas y margen del ${margen.toFixed(1)}%. Reserva recomendada anti-decomisiones: ${fmt(ingCur*0.20)}.`,color:'var(--neon)'});
+  const agRanking=agentes.filter(a=>(a.rol||'Comercial')==='Comercial').map(ag=>{const av=getVentasMes(curMes).filter(v=>v.agenteId===ag.id);return{ag,ventas:av.length,com:av.reduce((s,v)=>s+v.comision,0)};}).sort((a,b)=>b.com-a.com);
+  if(agRanking.length>1){const top=agRanking[0],bot=agRanking[agRanking.length-1];if(top.ventas>0&&bot.ventas<top.ventas*0.5) recs.push({p:3,ico:'👥',titulo:`Brecha: ${top.ag.nombre} (${top.ventas} ventas) vs ${bot.ag.nombre} (${bot.ventas})`,desc:`Considera que ${top.ag.nombre} comparta sus técnicas. Una reunión semanal de casos exitosos puede elevar el promedio.`,color:'var(--blue)'});}
+  if(recs.length===0) recs.push({p:3,ico:'📋',titulo:'Registra más datos para obtener recomendaciones',desc:'A medida que cargues ventas, gastos y pagos, este panel generará un plan de acción específico.',color:'var(--txt3)'});
   recs.sort((a,b)=>a.p-b.p);
   document.getElementById('analisis-recs').innerHTML=recs.map(r=>`
     <div style="display:flex;gap:14px;padding:16px;border-radius:12px;background:var(--s2);border:1px solid ${r.color}33;margin-bottom:10px;">
@@ -1879,6 +1999,7 @@ function renderAnalisis(){
       <div style="font-size:11.5px;color:var(--txt2);line-height:1.6;text-transform:none;letter-spacing:normal;">${r.desc}</div></div>
     </div>`).join('');
 }
+
 function riskLevel(m){
   if(m>=6) return{label:'Consolidada ✓',cls:'pill-g',color:'var(--neon)'};
   if(m>=4) return{label:(6-m)+' mes(es) riesgo',cls:'pill-a',color:'var(--amber)'};
@@ -2280,17 +2401,55 @@ function renderAgentes(){
       `}
     </div>`;}).join('');
   document.getElementById('ag-table').innerHTML=`
-    <thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Comisiones</th><th>En riesgo</th><th>Decomis.</th><th>Meta</th><th></th></tr></thead>
-    <tbody>${agStats.map((s,i)=>`<tr>
-    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${i===0&&s.rol==='Comercial'?'var(--amber)':i===1&&s.rol==='Comercial'?'var(--txt2)':'var(--txt3)'};">${i===0&&s.rol==='Comercial'?'🥇':i===1&&s.rol==='Comercial'?'🥈':i===2&&s.rol==='Comercial'?'🥉':'—'}</td>
+    <thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas${periodoLbl}</th><th>Ingresos${periodoLbl}</th><th>Costo directo</th><th>Costo total</th><th>Rentabilidad</th><th></th></tr></thead>
+    <tbody>${agStats.map((s,i)=>{
+      const isCom=s.rol==='Comercial';
+      const rentColor=s.rentabilidad===null?'var(--txt3)':s.rentabilidad>=50?'var(--neon)':s.rentabilidad>=0?'var(--amber)':'var(--hot)';
+      return`<tr>
+    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${i===0&&isCom?'var(--amber)':i===1&&isCom?'var(--txt2)':'var(--txt3)'};">${i===0&&isCom?'🥇':i===1&&isCom?'🥈':i===2&&isCom?'🥉':'—'}</td>
     <td><div class="ar"><div class="av" style="background:${s.ag.color};">${s.ag.nombre.slice(0,2).toUpperCase()}</div><div><div style="font-weight:600;">${s.ag.nombre}</div><div style="font-size:9.5px;color:var(--txt3);text-transform:none;">Desde ${s.ag.inicio||'—'}</div></div></div></td>
     <td><span class="pill" style="background:${ROL_COLOR[s.rol]}22;color:${ROL_COLOR[s.rol]};border:1px solid ${ROL_COLOR[s.rol]}44;">${ROL_ICO[s.rol]} ${s.rol}</span></td>
-    <td style="font-family:'DM Mono',monospace;">${s.rol==='Comercial'?s.ventas:'—'}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--neon);font-weight:700;">${s.rol==='Comercial'?fmt(s.com):'—'}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--amber);">${s.rol==='Comercial'?fmt(s.risk):'—'}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--hot);">${s.rol==='Comercial'?s.decs:'—'}</td>
-    <td>${s.rol==='Comercial'?`<div class="pbar" style="width:90px;"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div><div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}%</div>`:fmt(s.ag.sueldo||0)+' base'}</td>
-    <td style="display:flex;gap:4px;"><button class="db" onclick="openEditAgente(${s.ag.id})" title="Editar">✏️</button><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`).join('')}</tbody>`;
+    <td style="font-family:'DM Mono',monospace;">${isCom?s.ventas:'—'}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--neon);font-weight:700;">${isCom?fmt(s.com):'—'}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--txt2);">${fmt(s.costoDirecto)}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--hot);">${fmt(s.costoTotal)}</td>
+    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${rentColor};">${s.rentabilidad!==null?(s.rentabilidad>=0?'+':'')+s.rentabilidad.toFixed(0)+'%':'—'}</td>
+    <td style="display:flex;gap:4px;"><button class="db" onclick="openEditAgente(${s.ag.id})" title="Editar">✏️</button><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`;}).join('')}</tbody>`;
+
+  // ── DESGLOSE COSTOS COMPARTIDOS ──
+  const ingTotal=getIngMes(globalMes);
+  const supervisores=agentes.filter(a=>a.rol==='Supervisor');
+  const backoffices=agentes.filter(a=>a.rol==='BackOffice');
+  const costSup=supervisores.reduce((s,a)=>s+getPagosMes(globalMes).filter(p=>p.agenteId===a.id).reduce((ss,p)=>ss+p.monto,0),0);
+  const costBack=backoffices.reduce((s,a)=>s+getPagosMes(globalMes).filter(p=>p.agenteId===a.id).reduce((ss,p)=>ss+p.monto,0),0);
+  const gastosOp=totalGastos();
+  const totalCompartido=costSup+costBack+gastosOp;
+  const card=document.getElementById('ag-costo-compartido');
+  if(card){card.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div style="background:var(--s3);border-radius:10px;padding:12px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--txt3);margin-bottom:4px;">COSTO COMPARTIDO${periodoLbl}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--hot);">${fmt(totalCompartido)}</div>
+        <div style="font-size:10px;color:var(--txt2);text-transform:none;">${comerciales.length} comercial(es) lo sostienen</div>
+      </div>
+      <div style="background:var(--s3);border-radius:10px;padding:12px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--txt3);margin-bottom:4px;">CUOTA POR COMERCIAL</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--amber);">${fmt(costoPorComercial)}</div>
+        <div style="font-size:10px;color:var(--txt2);text-transform:none;">carga extra sobre cada comercial</div>
+      </div>
+    </div>
+    ${[
+      {label:'👑 Sueldos Supervisores',monto:costSup,det:supervisores.map(a=>a.nombre).join(', ')||'—',c:'var(--amber)'},
+      {label:'🖥️ Sueldos BackOffice',monto:costBack,det:backoffices.map(a=>a.nombre).join(', ')||'—',c:'var(--blue)'},
+      {label:'🏢 Gastos Operativos',monto:gastosOp,det:'Infraestructura, servicios, tecnología...',c:'var(--purple)'},
+    ].map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--b1);">
+      <div style="flex:1;"><div style="font-size:12px;font-weight:600;">${r.label}</div><div style="font-size:10px;color:var(--txt3);text-transform:none;">${r.det}</div></div>
+      <div style="text-align:right;"><div style="font-family:'DM Mono',monospace;font-weight:700;color:${r.c};">${fmt(r.monto)}</div>
+      <div style="font-size:9px;color:var(--txt3);">${ingTotal>0?((r.monto/ingTotal)*100).toFixed(1)+'% de ing.':''}</div></div></div>`).join('')}
+    <div style="background:rgba(0,255,225,0.04);border:1px solid rgba(0,255,225,0.12);border-radius:9px;padding:10px 13px;font-size:11px;color:var(--txt2);text-transform:none;letter-spacing:normal;line-height:1.7;margin-top:12px;">
+      💡 <strong>Fórmula rentabilidad por comercial:</strong><br>
+      Ingresos <span style="color:var(--neon);">(ventas)</span> − Costo directo <span style="color:var(--txt2);">(sueldo+com.+bonos)</span> − Cuota <span style="color:var(--amber);">(${fmt(costoPorComercial)} de gastos compartidos)</span> = <strong>Beneficio neto real aportado</strong>
+    </div>`;}
 }
 function delAgente(id){if(!confirm('¿Eliminar este agente?'))return;agentes=agentes.filter(a=>a.id!==id);saveAll();renderAgentes();toast('🗑️ Agente eliminado');}
 
