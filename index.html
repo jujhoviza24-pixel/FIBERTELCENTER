@@ -1421,15 +1421,22 @@ const GS = {
   get enabled(){ return !!this.url; },
   async _req(params){
     try{
-      const qs=Object.entries(params).map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):String(v))).join('&');
-      // Timeout de 12 segundos para que no quede colgado
       const controller = new AbortController();
-      const timer = setTimeout(()=>controller.abort(), 12000);
-      const r=await fetch(this.url+'?'+qs,{redirect:'follow', signal:controller.signal});
+      const timer = setTimeout(()=>controller.abort(), 20000);
+      // Usar POST para evitar el límite de tamaño de URL en GET (~8KB)
+      const r = await fetch(this.url, {
+        redirect: 'follow',
+        signal: controller.signal,
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: Object.entries(params).map(([k,v])=>
+          encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):String(v))
+        ).join('&')
+      });
       clearTimeout(timer);
       return JSON.parse(await r.text());
     }catch(e){
-      if(e.name==='AbortError') console.warn('GS timeout — sin respuesta en 12s');
+      if(e.name==='AbortError') console.warn('GS timeout');
       else console.warn('GS error:',e.message);
       return null;
     }
@@ -1600,21 +1607,37 @@ function disconnectSheets(){
   closeM('modal-gs');
 }
 
-const GS_SCRIPT = `// FiberTel Center — Google Apps Script v4
-// 1. Reemplaza TU_SPREADSHEET_ID con tu ID de Google Sheet
-// 2. Implementar → Nueva implementación → App web → Acceso: Cualquier persona
-// 3. Autorizar: pantalla de advertencia → Avanzado → Permitir
+const GS_SCRIPT = `// FiberTel Center — Google Apps Script v5
+// IMPORTANTE: usa doPost (no doGet) para enviar datos sin límite de tamaño
+// 1. Borra todo el código anterior en Apps Script
+// 2. Pega este código
+// 3. Reemplaza TU_SPREADSHEET_ID con tu ID real
+// 4. Implementar → Nueva implementación → Tipo: App web
+//    Ejecutar como: Yo  |  Acceso: Cualquier persona  → Implementar
+// 5. Pega la nueva URL en la app
 
 var SHEET_ID = 'TU_SPREADSHEET_ID';
 var TABLES   = ['agentes','ventas','pagos','bonos','gastos','decomisiones','descuentos'];
 
+function doPost(e) {
+  try {
+    var params = e.parameter;
+    var action = params.action;
+    if (action === 'ping') return res({ok:true, pong:true, version:5});
+    if (action === 'push') return pushData(JSON.parse(params.data));
+    if (action === 'pull') return pullData();
+    return res({ok:false, error:'Unknown action: ' + action});
+  } catch(err) {
+    return res({ok:false, error:err.message});
+  }
+}
+
 function doGet(e) {
   try {
     var action = e.parameter.action;
-    if (action === 'ping')  return res({ok:true, pong:true, version:4});
-    if (action === 'push')  return pushData(JSON.parse(e.parameter.data));
-    if (action === 'pull')  return pullData();
-    return res({ok:false, error:'Unknown action'});
+    if (action === 'ping') return res({ok:true, pong:true, version:5});
+    if (action === 'pull') return pullData();
+    return res({ok:false, error:'Use POST for push'});
   } catch(err) {
     return res({ok:false, error:err.message});
   }
@@ -1622,19 +1645,15 @@ function doGet(e) {
 
 function pushData(data) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
-
   for (var t = 0; t < TABLES.length; t++) {
     var name = TABLES[t];
     var rows = data[name];
     if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
-
     var sheet = ss.getSheetByName(name);
     if (!sheet) sheet = ss.insertSheet(name);
     sheet.clearContents();
-
     var headers = Object.keys(rows[0]);
     sheet.appendRow(headers);
-
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var rowArr = [];
@@ -1647,18 +1666,15 @@ function pushData(data) {
       sheet.appendRow(rowArr);
     }
   }
-
   var log = ss.getSheetByName('_sync_log');
   if (!log) log = ss.insertSheet('_sync_log');
   log.appendRow([new Date().toISOString(), 'PUSH', 'OK']);
-
   return res({ok:true, pushed:true, timestamp:new Date().toISOString()});
 }
 
 function pullData() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var result = {};
-
   for (var t = 0; t < TABLES.length; t++) {
     var name = TABLES[t];
     var sheet = ss.getSheetByName(name);
@@ -1679,7 +1695,7 @@ function pullData() {
         if (v instanceof Date) {
           v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
         } else if (typeof v === 'string' && (v.charAt(0) === '{' || v.charAt(0) === '[')) {
-          try { v = JSON.parse(v); } catch(e) {}
+          try { v = JSON.parse(v); } catch(e2) {}
         }
         obj[headers[k]] = v;
       }
@@ -1687,11 +1703,9 @@ function pullData() {
     }
     result[name] = arr;
   }
-
   var log = ss.getSheetByName('_sync_log');
   if (!log) log = ss.insertSheet('_sync_log');
   log.appendRow([new Date().toISOString(), 'PULL', 'OK']);
-
   return res({ok:true, data:result});
 }
 
@@ -1700,7 +1714,6 @@ function res(data) {
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }`;
-
 
 function showGSScript(){
   document.getElementById('gs-code-content').textContent=GS_SCRIPT;
