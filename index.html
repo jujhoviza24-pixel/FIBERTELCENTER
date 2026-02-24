@@ -1666,127 +1666,190 @@ function disconnectSheets(){
   closeM('modal-gs');
 }
 
-const GS_SCRIPT = `// FiberTel Center — Google Apps Script v5
-// IMPORTANTE: usa doPost (no doGet) para enviar datos sin límite de tamaño
-// 1. Borra todo el código anterior en Apps Script
-// 2. Pega este código
-// 3. Reemplaza TU_SPREADSHEET_ID con tu ID real
-// 4. Implementar → Nueva implementación → Tipo: App web
-//    Ejecutar como: Yo  |  Acceso: Cualquier persona  → Implementar
-// 5. Pega la nueva URL en la app
+const GS_SCRIPT = `// FiberTel Center — Apps Script v6
+// INSTRUCCIONES:
+// 1. Borrar todo el código anterior en Apps Script
+// 2. Pegar este código completo
+// 3. Reemplazar TU_SPREADSHEET_ID con el ID real del Sheet
+// 4. Guardar (Ctrl+S)
+// 5. Implementar → Administrar implementaciones → ✏️ → Nueva versión → Guardar
+// 6. Copiar la URL /exec y pegarla en la app
 
 var SHEET_ID = 'TU_SPREADSHEET_ID';
 var TABLES   = ['agentes','ventas','pagos','bonos','gastos','decomisiones','descuentos'];
+var NUM_FIELDS = {'id':1,'agenteId':1,'ventaId':1,'monto':1,'comision':1,'sueldo':1,'meta':1,'comInt':1,'comMov':1,'cantidad':1};
 
 function doPost(e) {
   try {
     var params = e.parameter;
     var action = params.action;
-    if (action === 'ping') return res({ok:true, pong:true, version:5});
-    if (action === 'push') return pushData(JSON.parse(params.data));
+    if (action === 'ping') return res({ok:true, pong:true, version:6});
+    if (action === 'push') {
+      if (!params.data) return res({ok:false, error:'No data received in POST body'});
+      var data;
+      try { data = JSON.parse(params.data); }
+      catch(pe) { return res({ok:false, error:'JSON parse error: ' + pe.message}); }
+      return pushData(data);
+    }
     if (action === 'pull') return pullData();
     return res({ok:false, error:'Unknown action: ' + action});
   } catch(err) {
-    return res({ok:false, error:err.message});
+    return res({ok:false, error:'doPost error: ' + err.message + ' | stack: ' + (err.stack||'')});
   }
 }
 
 function doGet(e) {
   try {
     var action = e.parameter.action;
-    if (action === 'ping') return res({ok:true, pong:true, version:5});
+    if (action === 'ping') return res({ok:true, pong:true, version:6});
     if (action === 'pull') return pullData();
-    return res({ok:false, error:'Use POST for push'});
+    return res({ok:false, error:'Use POST for push operations'});
   } catch(err) {
-    return res({ok:false, error:err.message});
+    return res({ok:false, error:'doGet error: ' + err.message});
   }
 }
 
-// Campos que deben guardarse como número (no string) en Sheets
-var NUM_FIELDS = ['id','agenteId','ventaId','monto','comision','sueldo','meta','comInt','comMov','cantidad'];
-
-function isNumField(key) {
-  for (var n = 0; n < NUM_FIELDS.length; n++) { if (NUM_FIELDS[n] === key) return true; }
-  return false;
-}
-
 function pushData(data) {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(SHEET_ID);
+  } catch(e) {
+    return res({ok:false, error:'No se pudo abrir el Spreadsheet. Verificá el SHEET_ID: ' + SHEET_ID + ' — Error: ' + e.message});
+  }
+
+  var pushed = [];
+  var errors = [];
+
   for (var t = 0; t < TABLES.length; t++) {
     var name = TABLES[t];
     var rows = data[name];
     if (!rows || !Array.isArray(rows) || rows.length === 0) continue;
-    var sheet = ss.getSheetByName(name);
-    if (!sheet) sheet = ss.insertSheet(name);
-    sheet.clearContents();
-    var headers = Object.keys(rows[0]);
-    sheet.appendRow(headers);
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      var rowArr = [];
-      for (var j = 0; j < headers.length; j++) {
-        var key = headers[j];
-        var v = row[key];
-        if (v === null || v === undefined) { rowArr.push(''); continue; }
-        if (typeof v === 'object') { rowArr.push(JSON.stringify(v)); continue; }
-        // Preservar tipo numérico para campos clave — evita que al leer de vuelta vengan como string
-        if (isNumField(key) && v !== '') {
-          var num = parseFloat(v);
-          rowArr.push(isNaN(num) ? v : num);
-        } else {
-          rowArr.push(v === false ? 'false' : v === true ? 'true' : String(v));
+
+    try {
+      // Eliminar y recrear la hoja para borrar columnas fantasma
+      var sheet = ss.getSheetByName(name);
+      if (sheet) {
+        // Borrar TODA la hoja (datos + formato + columnas extra)
+        sheet.clear();
+        // Si tiene más columnas que las que necesitamos, reducirla
+        var neededCols = Object.keys(rows[0]).length;
+        if (sheet.getMaxColumns() > neededCols + 2) {
+          sheet.deleteColumns(neededCols + 1, sheet.getMaxColumns() - neededCols);
         }
+      } else {
+        sheet = ss.insertSheet(name);
       }
-      sheet.appendRow(rowArr);
+
+      var headers = Object.keys(rows[0]);
+
+      // Escribir TODAS las filas de una vez con setValues (más rápido y evita columnas extra)
+      var allData = [headers];
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var rowArr = [];
+        for (var j = 0; j < headers.length; j++) {
+          var key = headers[j];
+          var v = row[key];
+          if (v === null || v === undefined) { rowArr.push(''); continue; }
+          if (typeof v === 'object') { rowArr.push(JSON.stringify(v)); continue; }
+          if (NUM_FIELDS[key] && v !== '') {
+            var num = parseFloat(v);
+            rowArr.push(isNaN(num) ? String(v) : num);
+          } else {
+            rowArr.push(String(v));
+          }
+        }
+        allData.push(rowArr);
+      }
+
+      // Asegurar que el rango tenga exactamente las columnas correctas
+      var range = sheet.getRange(1, 1, allData.length, headers.length);
+      range.setValues(allData);
+      pushed.push(name + '(' + rows.length + ')');
+
+    } catch(te) {
+      errors.push(name + ': ' + te.message);
     }
   }
-  var log = ss.getSheetByName('_sync_log');
-  if (!log) log = ss.insertSheet('_sync_log');
-  log.appendRow([new Date().toISOString(), 'PUSH', 'OK', JSON.stringify(Object.keys(data))]);
-  return res({ok:true, pushed:true, timestamp:new Date().toISOString()});
+
+  // Log de sync
+  try {
+    var log = ss.getSheetByName('_sync_log');
+    if (!log) log = ss.insertSheet('_sync_log');
+    log.appendRow([new Date().toISOString(), 'PUSH', errors.length === 0 ? 'OK' : 'PARTIAL', pushed.join(','), errors.join('|')]);
+  } catch(le) {}
+
+  if (errors.length > 0 && pushed.length === 0) {
+    return res({ok:false, error:'Falló en todas las tablas: ' + errors.join(' | ')});
+  }
+  return res({ok:true, pushed:pushed, errors:errors, timestamp:new Date().toISOString()});
 }
 
 function pullData() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(SHEET_ID);
+  } catch(e) {
+    return res({ok:false, error:'No se pudo abrir el Spreadsheet: ' + e.message});
+  }
+
   var result = {};
   for (var t = 0; t < TABLES.length; t++) {
     var name = TABLES[t];
-    var sheet = ss.getSheetByName(name);
-    if (!sheet) { result[name] = []; continue; }
-    var values = sheet.getDataRange().getValues();
-    if (values.length < 2) { result[name] = []; continue; }
-    var headers = [];
-    for (var h = 0; h < values[0].length; h++) headers.push(String(values[0][h]));
-    var arr = [];
-    for (var i = 1; i < values.length; i++) {
-      var row = values[i];
-      var empty = true;
-      for (var j = 0; j < row.length; j++) { if (row[j] !== '') { empty = false; break; } }
-      if (empty) continue;
-      var obj = {};
-      for (var k = 0; k < headers.length; k++) {
-        var key = headers[k];
-        var v = row[k];
-        if (v instanceof Date) {
-          v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        } else if (typeof v === 'string' && v !== '') {
-          if (v.charAt(0) === '{' || v.charAt(0) === '[') {
-            try { v = JSON.parse(v); } catch(e2) {}
-          } else if (isNumField(key)) {
-            // Forzar a número si es campo numérico y vino como string
-            var parsed = parseFloat(v);
-            if (!isNaN(parsed)) v = parsed;
-          }
-        }
-        obj[key] = v;
+    try {
+      var sheet = ss.getSheetByName(name);
+      if (!sheet) { result[name] = []; continue; }
+      var values = sheet.getDataRange().getValues();
+      if (values.length < 2) { result[name] = []; continue; }
+
+      // Leer headers de la primera fila — ignorar columnas con header vacío
+      var headers = [];
+      var validCols = [];
+      for (var h = 0; h < values[0].length; h++) {
+        var hdr = String(values[0][h]).trim();
+        if (hdr !== '') { headers.push(hdr); validCols.push(h); }
       }
-      arr.push(obj);
+
+      var arr = [];
+      for (var i = 1; i < values.length; i++) {
+        var row = values[i];
+        // Ignorar filas completamente vacías
+        var empty = true;
+        for (var j = 0; j < validCols.length; j++) {
+          if (row[validCols[j]] !== '') { empty = false; break; }
+        }
+        if (empty) continue;
+
+        var obj = {};
+        for (var k = 0; k < headers.length; k++) {
+          var key = headers[k];
+          var v = row[validCols[k]];
+          if (v instanceof Date) {
+            v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+          } else if (typeof v === 'string' && v !== '') {
+            if (v.charAt(0) === '{' || v.charAt(0) === '[') {
+              try { v = JSON.parse(v); } catch(e2) {}
+            } else if (NUM_FIELDS[key]) {
+              var parsed = parseFloat(v);
+              if (!isNaN(parsed)) v = parsed;
+            }
+          }
+          obj[key] = v;
+        }
+        arr.push(obj);
+      }
+      result[name] = arr;
+    } catch(te) {
+      result[name] = [];
     }
-    result[name] = arr;
   }
-  var log = ss.getSheetByName('_sync_log');
-  if (!log) log = ss.insertSheet('_sync_log');
-  log.appendRow([new Date().toISOString(), 'PULL', 'OK']);
+
+  try {
+    var log = ss.getSheetByName('_sync_log');
+    if (!log) log = ss.insertSheet('_sync_log');
+    log.appendRow([new Date().toISOString(), 'PULL', 'OK']);
+  } catch(le) {}
+
   return res({ok:true, data:result});
 }
 
