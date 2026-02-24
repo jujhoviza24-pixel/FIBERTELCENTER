@@ -19,7 +19,7 @@
     description: "Sistema de gestión — ventas, comisiones, decomisiones",
     start_url: "./",
     display: "standalone",
-    orientation: "portrait-primary",
+    orientation: "any",
     background_color: "#04060f",
     theme_color: "#00ffe1",
     lang: "es",
@@ -44,7 +44,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
 /* ═══════════════════════════════════════
    ROOT VARIABLES
@@ -131,9 +131,21 @@ nav::-webkit-scrollbar{width:3px;}nav::-webkit-scrollbar-thumb{background:var(--
 .risk-sub{font-size:9.5px;color:var(--txt2);}
 
 /* ═══ MAIN ═══ */
-.main{margin-left:var(--sw);padding:26px 30px;min-height:100vh;position:relative;z-index:1;}
-.page{display:none;}.page.active{display:block;animation:pageIn .35s cubic-bezier(.77,0,.18,1);}
-@keyframes pageIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+.main{margin-left:var(--sw);padding:26px 30px;min-height:100vh;position:relative;z-index:1;-webkit-overflow-scrolling:touch;overflow-x:hidden;}
+.page{
+  display:block;
+  position:absolute;
+  top:0;left:0;right:0;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .18s ease;
+  will-change:opacity;
+}
+.page.active{
+  opacity:1;
+  pointer-events:auto;
+  position:relative;
+}
 .ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;}
 .ph-eye{font-size:7.5px;letter-spacing:3.5px;text-transform:uppercase;color:var(--neon);font-family:'DM Mono',monospace;margin-bottom:5px;display:flex;align-items:center;gap:6px;}
 .ph-eye::before{content:'';width:14px;height:1px;background:var(--neon);}
@@ -2293,7 +2305,15 @@ const charts={};
 function dc(k){if(charts[k]){charts[k].destroy();delete charts[k];}}
 function monthLabels(n){const M=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];const now=new Date();return Array.from({length:n},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-(n-1-i),1);return M[d.getMonth()];});}
 function mTotals(arr,field,n){const now=new Date();return Array.from({length:n},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-(n-1-i),1);const yr=d.getFullYear(),mo=d.getMonth();return arr.filter(x=>{const xd=new Date(x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x[field]||0),0);});}
-const chartOpts=(ycb)=>({plugins:{legend:{labels:{color:'#8898c0',font:{size:10,family:'DM Sans'}}}},scales:{x:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9}},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}},y:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9},callback:ycb||((v)=>'S/'+fmtN(v))},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}}}});
+const isMobileDevice=/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)||window.innerWidth<768;
+const chartOpts=(ycb)=>({
+  animation: isMobileDevice ? false : {duration:400},
+  plugins:{legend:{labels:{color:'#8898c0',font:{size:10,family:'DM Sans'}}}},
+  scales:{
+    x:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9}},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}},
+    y:{ticks:{color:'#3d4f78',font:{family:'DM Mono',size:9},callback:ycb||((v)=>'S/'+fmtN(v))},grid:{color:'rgba(255,255,255,.022)'},border:{color:'transparent'}}
+  }
+});
 
 /* ─── MOBILE SIDEBAR ─── */
 function showSyncOverlay(txt){
@@ -2327,11 +2347,13 @@ function closeSidebar(){
 function showPage(id,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
+  const pg=document.getElementById('page-'+id);
+  if(!pg) return;
+  pg.classList.add('active');
   if(el) el.classList.add('active');
   else document.querySelectorAll('.ni').forEach(n=>{if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+id+"'"))n.classList.add('active');});
+  // Render inmediato — sin setTimeout para que los datos aparezcan al instante
   ({dashboard:renderDashboard,ventas:renderVentas,nomina:renderNomina,decomisiones:renderDecomisiones,agentes:renderAgentes,gastos:renderGastos,balance:renderBalance,educacion:renderEducacion,analisis:renderAnalisis})[id]?.();
-  // Cerrar sidebar en móvil al navegar
   if(window.innerWidth<=768) closeSidebar();
 }
 
