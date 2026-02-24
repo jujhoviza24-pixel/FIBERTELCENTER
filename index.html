@@ -710,7 +710,7 @@ select option{background:var(--s2);}
   <div class="aperf" id="agent-cards"></div>
   <div class="tcard">
     <div class="tbar"><div class="tbar-title">Ranking de Agentes</div></div>
-    <table><thead><tr><th>#</th><th>Agente</th><th>Ventas</th><th>Com. generada</th><th>En riesgo</th><th>Decomisiones</th><th>Rendimiento</th><th></th></tr></thead><tbody id="ag-table"></tbody></table>
+    <table><thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Com. generada</th><th>En riesgo</th><th>Decomisiones</th><th>Rendimiento/Sueldo</th><th></th></tr></thead><tbody id="ag-table"></tbody></table>
   </div>
 </div>
 
@@ -955,18 +955,33 @@ select option{background:var(--s2);}
 <div class="modal">
   <div class="modal-x" onclick="closeModals()">✕</div>
   <div class="modal-title">👤 Nuevo Agente</div>
-  <div class="modal-sub">Agrega un miembro al equipo de ventas</div>
+  <div class="modal-sub">Agrega un miembro al equipo</div>
   <div class="frow">
     <div class="fg"><label>Nombre completo</label><input type="text" id="ag-nombre" placeholder="Nombre completo"></div>
     <div class="fg"><label>Fecha de inicio</label><input type="date" id="ag-inicio"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label>Sueldo base (S/)</label><input type="number" id="ag-sueldo" placeholder="1200"></div>
+    <div class="fg"><label>Rol en el equipo</label>
+      <select id="ag-rol" onchange="updateRolInfo()">
+        <option value="Comercial">💼 Comercial — genera ventas</option>
+        <option value="BackOffice">🖥️ BackOffice — soporte interno</option>
+        <option value="Supervisor">👑 Supervisor — gestión del equipo</option>
+      </select>
+    </div>
     <div class="fg"><label>Meta ventas/mes</label><input type="number" id="ag-meta" placeholder="20"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label>Com. por internet (S/venta)</label><input type="number" id="ag-com-int" placeholder="20"></div>
+    <div class="fg"><label>Sueldo base (S/)</label><input type="number" id="ag-sueldo" placeholder="1200"></div>
+    <div class="fg" id="ag-com-wrap">
+      <label>Com. por internet (S/venta)</label><input type="number" id="ag-com-int" placeholder="20">
+    </div>
+  </div>
+  <div class="frow" id="ag-com-row2">
     <div class="fg"><label>Com. por móvil (S/venta)</label><input type="number" id="ag-com-mov" placeholder="15"></div>
+    <div class="fg"></div>
+  </div>
+  <div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 13px;font-size:11px;color:var(--txt2);text-transform:none;letter-spacing:normal;line-height:1.6;margin-bottom:8px;" id="ag-rol-info">
+    💼 <strong>Comercial:</strong> aparece en el selector de ventas. Sus comisiones son el ingreso del negocio.
   </div>
   <div class="fg"><label>Color identificador</label>
     <div style="display:flex;gap:7px;margin-top:4px;" id="ag-colpick">
@@ -1515,76 +1530,101 @@ function disconnectSheets(){
   closeM('modal-gs');
 }
 
-const GS_SCRIPT = `// FiberTel Center — Google Apps Script (base de datos en Sheets)
+const GS_SCRIPT = `// FiberTel Center — Google Apps Script v3
 // 1. Reemplaza TU_SPREADSHEET_ID con el ID real de tu Google Sheet
 // 2. Implementar → Nueva implementación → App web → Acceso: Cualquier persona
+// 3. Autorizar cuando Google lo pida (pantalla de advertencia → Avanzado → Permitir)
 
 const SHEET_ID = 'TU_SPREADSHEET_ID';
+const TABLES   = ['agentes','ventas','pagos','bonos','gastos','decomisiones','descuentos'];
 
 function doGet(e) {
-  const action = e.parameter.action;
   try {
-    if (action === 'ping') return res({ok: true, pong: true});
-    if (action === 'push') return pushData(JSON.parse(e.parameter.data));
-    if (action === 'pull') return pullData();
-    return res({ok: false, error: 'Unknown action'});
+    const action = e.parameter.action;
+    if (action === 'ping')  return res({ok:true, pong:true, version:3});
+    if (action === 'push')  return pushData(JSON.parse(e.parameter.data));
+    if (action === 'pull')  return pullData();
+    return res({ok:false, error:'Unknown action: '+action});
   } catch(err) {
-    return res({ok: false, error: err.message});
+    return res({ok:false, error:err.message, stack:err.stack});
   }
 }
 
 function pushData(data) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const tables = ['agentes', 'ventas', 'pagos', 'bonos', 'gastos', 'decomisiones'];
-  
-  tables.forEach(name => {
-    if (!data[name] || !data[name].length) return;
+  const pushed = [];
+  const skipped = [];
+
+  TABLES.forEach(name => {
+    const rows = data[name];
+    // Si no viene el campo o está vacío, NO borrar la hoja — saltar
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      skipped.push(name);
+      return;
+    }
+
     let sheet = ss.getSheetByName(name);
     if (!sheet) sheet = ss.insertSheet(name);
     sheet.clearContents();
-    
-    const rows = data[name];
+
     const headers = Object.keys(rows[0]);
-    sheet.appendRow(headers);
-    rows.forEach(row => sheet.appendRow(headers.map(h => {
-      const v = row[h];
-      return typeof v === 'object' ? JSON.stringify(v) : (v ?? '');
-    })));
+    // Escribir todo de una sola vez (más rápido que appendRow por fila)
+    const matrix = [headers, ...rows.map(row =>
+      headers.map(h => {
+        const v = row[h];
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object') return JSON.stringify(v);
+        return v;
+      })
+    )];
+    sheet.getRange(1, 1, matrix.length, headers.length).setValues(matrix);
+    pushed.push(name + '(' + rows.length + ')');
   });
-  
-  // Log de última sincronización
-  let logSheet = ss.getSheetByName('_sync_log');
-  if (!logSheet) logSheet = ss.insertSheet('_sync_log');
-  logSheet.appendRow([new Date().toISOString(), 'PUSH', 'OK']);
-  
-  return res({ok: true, pushed: true, timestamp: new Date().toISOString()});
+
+  // Log
+  let log = ss.getSheetByName('_sync_log');
+  if (!log) log = ss.insertSheet('_sync_log');
+  log.appendRow([new Date().toISOString(), 'PUSH', pushed.join(', '), skipped.join(', ')]);
+
+  return res({ok:true, pushed:pushed, skipped:skipped, timestamp:new Date().toISOString()});
 }
 
 function pullData() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const tables = ['agentes', 'ventas', 'pagos', 'bonos', 'gastos', 'decomisiones'];
   const result = {};
-  
-  tables.forEach(name => {
+
+  TABLES.forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) { result[name] = []; return; }
     const values = sheet.getDataRange().getValues();
     if (values.length < 2) { result[name] = []; return; }
-    const headers = values[0];
-    result[name] = values.slice(1).map(row => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        let v = row[i];
-        if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
-          try { v = JSON.parse(v); } catch(e) {}
-        }
-        obj[h] = v;
+    const headers = values[0].map(String);
+    result[name] = values.slice(1)
+      .filter(row => row.some(cell => cell !== '' && cell !== null))
+      .map(row => {
+        const obj = {};
+        headers.forEach((h, i) => {
+          let v = row[i];
+          // Convertir fecha de Sheets a string ISO
+          if (v instanceof Date) {
+            v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+          }
+          // Intentar parsear JSON si parece objeto/array
+          if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
+            try { v = JSON.parse(v); } catch(err) {}
+          }
+          obj[h] = v;
+        });
+        return obj;
       });
-      return obj;
-    });
   });
-  
-  return res({ok: true, data: result});
+
+  // Log
+  let log = ss.getSheetByName('_sync_log');
+  if (!log) log = ss.insertSheet('_sync_log');
+  log.appendRow([new Date().toISOString(), 'PULL', 'OK']);
+
+  return res({ok:true, data:result});
 }
 
 function res(data) {
@@ -1628,10 +1668,11 @@ function buildMesFiltro(arr,selId,val){
 }
 
 /* ─── GLOBAL MES FILTER ─── */
-let globalMes='';
+let globalMes='',vSearch='',vCamp='',vMes='',nomMes='';
 function setGlobalMes(val){
   globalMes=val;
-  vMes=val; nomMes=val;
+  vMes=''; nomMes='';
+  // Reset filtros locales para que no confundan con el filtro global
   const resEl=document.getElementById('global-mes-resumen');
   if(val&&resEl){
     const ing=getIngMes(val),eg=getEgMes(val);
@@ -2096,34 +2137,52 @@ function delDC(id){decomisiones=decomisiones.filter(d=>d.id!==id);saveAll();rend
 /* ─── AGENTES ─── */
 function renderAgentes(){
   buildSel('v-agente');
-  if(!agentes.length){document.getElementById('agent-cards').innerHTML='';document.getElementById('ag-table').innerHTML='<tr><td colspan="8"><div class="empty">👥 Sin agentes — agrega tu primer agente</div></td></tr>';return;}
+  if(!agentes.length){document.getElementById('agent-cards').innerHTML='';document.getElementById('ag-table').innerHTML='<tr><td colspan="9"><div class="empty">👥 Sin agentes — agrega tu primer agente</div></td></tr>';return;}
+  const ROL_ICO={'Comercial':'💼','BackOffice':'🖥️','Supervisor':'👑'};
+  const ROL_COLOR={'Comercial':'var(--neon)','BackOffice':'var(--blue)','Supervisor':'var(--amber)'};
   const agStats=agentes.map(ag=>{
+    const rol=ag.rol||'Comercial';
     const avs=ventas.filter(v=>v.agenteId===ag.id);
     const com=avs.reduce((s,v)=>s+v.comision,0);
     const risk=avs.filter(v=>monthsAgo(v.fecha)<6&&!decomisiones.find(d=>d.ventaId===v.id)).reduce((s,v)=>s+v.comision,0);
     const decs=decomisiones.filter(d=>{const v=ventas.find(vv=>vv.id===d.ventaId);return v&&v.agenteId===ag.id;}).length;
     const pct=ag.meta&&avs.length?Math.min((avs.length/ag.meta)*100,100):0;
-    return{ag,ventas:avs.length,com,risk,decs,pct};
-  }).sort((a,b)=>b.com-a.com);
+    return{ag,rol,ventas:avs.length,com,risk,decs,pct};
+  }).sort((a,b)=>{
+    // Comerciales primero, luego Supervisores, luego BackOffice
+    const order={'Comercial':0,'Supervisor':1,'BackOffice':2};
+    return (order[a.rol]||0)-(order[b.rol]||0)||b.com-a.com;
+  });
   document.getElementById('agent-cards').innerHTML=agStats.map(s=>`
     <div class="ap-card">
-      <div class="ap-top"><div class="ap-av" style="background:${s.ag.color};">${s.ag.nombre.slice(0,2).toUpperCase()}</div><span class="pill pill-b">${s.ventas} ventas</span></div>
+      <div class="ap-top">
+        <div class="ap-av" style="background:${s.ag.color};">${s.ag.nombre.slice(0,2).toUpperCase()}</div>
+        <span class="pill" style="background:${ROL_COLOR[s.rol]}22;color:${ROL_COLOR[s.rol]};border:1px solid ${ROL_COLOR[s.rol]}44;">${ROL_ICO[s.rol]} ${s.rol}</span>
+      </div>
       <div class="ap-name">${s.ag.nombre}</div>
       <div style="font-size:10px;color:var(--txt2);text-transform:none;letter-spacing:normal;">Meta: ${s.ag.meta||'—'}/mes · Desde ${s.ag.inicio||'—'}</div>
-      <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--neon);margin-top:7px;">${fmt(s.com)}</div>
-      <div style="font-size:10px;color:var(--amber);text-transform:none;">En riesgo: ${fmt(s.risk)}</div>
-      <div class="pbar"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div>
-      <div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}% de meta mensual</div>
+      ${s.rol==='Comercial'?`
+        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--neon);margin-top:7px;">${fmt(s.com)}</div>
+        <div style="font-size:10px;color:var(--amber);text-transform:none;">En riesgo: ${fmt(s.risk)}</div>
+        <div class="pbar"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div>
+        <div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}% de meta mensual</div>
+      `:`
+        <div style="font-size:11px;color:var(--txt2);margin-top:7px;text-transform:none;">Sueldo base: ${fmt(s.ag.sueldo||0)}</div>
+        <div style="font-size:10px;color:var(--txt3);text-transform:none;">Gasto operativo del negocio</div>
+      `}
     </div>`).join('');
-  document.getElementById('ag-table').innerHTML=agStats.map((s,i)=>`<tr>
-    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${i===0?'var(--amber)':i===1?'var(--txt2)':'var(--txt3)'};">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</td>
+  document.getElementById('ag-table').innerHTML=`
+    <thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Comisiones</th><th>En riesgo</th><th>Decomis.</th><th>Meta</th><th></th></tr></thead>
+    <tbody>${agStats.map((s,i)=>`<tr>
+    <td style="font-family:'DM Mono',monospace;font-weight:700;color:${i===0&&s.rol==='Comercial'?'var(--amber)':i===1&&s.rol==='Comercial'?'var(--txt2)':'var(--txt3)'};">${i===0&&s.rol==='Comercial'?'🥇':i===1&&s.rol==='Comercial'?'🥈':i===2&&s.rol==='Comercial'?'🥉':'—'}</td>
     <td><div class="ar"><div class="av" style="background:${s.ag.color};">${s.ag.nombre.slice(0,2).toUpperCase()}</div><div><div style="font-weight:600;">${s.ag.nombre}</div><div style="font-size:9.5px;color:var(--txt3);text-transform:none;">Desde ${s.ag.inicio||'—'}</div></div></div></td>
-    <td style="font-family:'DM Mono',monospace;">${s.ventas}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--neon);font-weight:700;">${fmt(s.com)}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--amber);">${fmt(s.risk)}</td>
-    <td style="font-family:'DM Mono',monospace;color:var(--hot);">${s.decs}</td>
-    <td><div class="pbar" style="width:90px;"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div><div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}%</div></td>
-    <td><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`).join('');
+    <td><span class="pill" style="background:${ROL_COLOR[s.rol]}22;color:${ROL_COLOR[s.rol]};border:1px solid ${ROL_COLOR[s.rol]}44;">${ROL_ICO[s.rol]} ${s.rol}</span></td>
+    <td style="font-family:'DM Mono',monospace;">${s.rol==='Comercial'?s.ventas:'—'}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--neon);font-weight:700;">${s.rol==='Comercial'?fmt(s.com):'—'}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--amber);">${s.rol==='Comercial'?fmt(s.risk):'—'}</td>
+    <td style="font-family:'DM Mono',monospace;color:var(--hot);">${s.rol==='Comercial'?s.decs:'—'}</td>
+    <td>${s.rol==='Comercial'?`<div class="pbar" style="width:90px;"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div><div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}%</div>`:fmt(s.ag.sueldo||0)+' base'}</td>
+    <td><button class="db" onclick="delAgente(${s.ag.id})">🗑</button></td></tr>`).join('')}</tbody>`;
 }
 function delAgente(id){if(!confirm('¿Eliminar este agente?'))return;agentes=agentes.filter(a=>a.id!==id);saveAll();renderAgentes();toast('🗑️ Agente eliminado');}
 
@@ -2256,12 +2315,47 @@ function closeModals(){document.querySelectorAll('.modal-overlay').forEach(m=>{i
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));});
 
-function buildSel(id){const s=document.getElementById(id);if(!s)return;s.innerHTML=agentes.length?agentes.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join(''):'<option value="">Sin agentes</option>';}
+// buildSel: si es selector de venta solo muestra Comerciales
+function buildSel(id){
+  const s=document.getElementById(id);if(!s)return;
+  const esVenta = id==='v-agente'||id==='ev-agente';
+  const lista = esVenta ? agentes.filter(a=>!a.rol||a.rol==='Comercial') : agentes;
+  s.innerHTML=lista.length?lista.map(a=>`<option value="${a.id}">${a.nombre}${a.rol&&a.rol!=='Comercial'?' ('+a.rol+')':''}</option>`).join(''):'<option value="">Sin agentes</option>';
+}
+// Actualiza info de rol en modal agente
+function updateRolInfo(){
+  const rol=document.getElementById('ag-rol')?.value;
+  const info=document.getElementById('ag-rol-info');
+  const comWrap=document.getElementById('ag-com-wrap');
+  const comRow2=document.getElementById('ag-com-row2');
+  if(!info)return;
+  const msgs={
+    'Comercial':'💼 <strong>Comercial:</strong> aparece en el selector de ventas. Sus comisiones son el ingreso del negocio.',
+    'BackOffice':'🖥️ <strong>BackOffice:</strong> no genera ventas directas. Su sueldo se contabiliza como gasto operativo en el balance.',
+    'Supervisor':'👑 <strong>Supervisor:</strong> gestiona al equipo. Su sueldo se contabiliza como gasto operativo en el balance.'
+  };
+  info.innerHTML=msgs[rol]||msgs['Comercial'];
+  const esComercial=rol==='Comercial';
+  if(comWrap) comWrap.style.opacity=esComercial?'1':'0.4';
+  if(comRow2) comRow2.style.opacity=esComercial?'1':'0.4';
+}
 function pickC(c,el){agColor=c;document.querySelectorAll('#ag-colpick div').forEach(d=>d.style.border='2px solid transparent');el.style.border='2px solid #fff';}
 
 function openModalV(){buildSel('v-agente');document.getElementById('v-fecha').value=today();document.getElementById('v-comision').value='';document.getElementById('v-cliente').value='';document.getElementById('v-nota').value='';openM('modal-venta');}
 function openModalG(){document.getElementById('g-fecha').value=today();document.getElementById('g-monto').value='';document.getElementById('g-desc').value='';openM('modal-gasto');}
-function openModalAg(){document.getElementById('ag-nombre').value='';document.getElementById('ag-inicio').value=today();document.getElementById('ag-sueldo').value='';document.getElementById('ag-meta').value='';document.getElementById('ag-com-int').value='';document.getElementById('ag-com-mov').value='';agColor='#00ffe1';document.querySelectorAll('#ag-colpick div').forEach((d,i)=>d.style.border=i===0?'2px solid #fff':'2px solid transparent');openM('modal-agente');}
+function openModalAg(){
+  document.getElementById('ag-nombre').value='';
+  document.getElementById('ag-inicio').value=today();
+  document.getElementById('ag-sueldo').value='';
+  document.getElementById('ag-meta').value='';
+  document.getElementById('ag-com-int').value='';
+  document.getElementById('ag-com-mov').value='';
+  document.getElementById('ag-rol').value='Comercial';
+  agColor='#00ffe1';
+  document.querySelectorAll('#ag-colpick div').forEach((d,i)=>d.style.border=i===0?'2px solid #fff':'2px solid transparent');
+  updateRolInfo();
+  openM('modal-agente');
+}
 function openModalP(){buildSel('p-agente');document.getElementById('p-fecha').value=today();document.getElementById('p-monto').value='';document.getElementById('p-nota').value='';openM('modal-pago');}
 function openModalDC(){
   const activos=ventas.filter(v=>!decomisiones.find(d=>d.ventaId===v.id)&&monthsAgo(v.fecha)<6);
@@ -2275,7 +2369,7 @@ function saveVenta(){
   const ag=document.getElementById('v-agente').value,monto=parseFloat(document.getElementById('v-comision').value),camp=document.getElementById('v-camp').value.trim();
   if(!ag||!monto||!camp){toast('⚠️ Completa agente, campaña y comisión');return;}
   const nv={id:Date.now(),agenteId:parseInt(ag),fecha:document.getElementById('v-fecha').value,campana:camp,producto:document.getElementById('v-producto').value,cliente:document.getElementById('v-cliente').value,comision:monto,nota:document.getElementById('v-nota').value};
-  ventas.push(nv);saveAll();closeModals();renderDashboard();toast('✅ Venta registrada — '+fmt(monto),'ok');
+  ventas.push(nv);saveAll();closeModals();renderDashboard();renderVentas();toast('✅ Venta registrada — '+fmt(monto),'ok');
 }
 function saveGasto(){
   const m=parseFloat(document.getElementById('g-monto').value),d=document.getElementById('g-desc').value.trim();
@@ -2286,8 +2380,17 @@ function saveGasto(){
 function saveAgente(){
   const n=document.getElementById('ag-nombre').value.trim();
   if(!n){toast('⚠️ Escribe el nombre del agente');return;}
-  agentes.push({id:Date.now(),nombre:n,inicio:document.getElementById('ag-inicio').value,sueldo:parseFloat(document.getElementById('ag-sueldo').value)||0,meta:parseInt(document.getElementById('ag-meta').value)||0,comInt:parseFloat(document.getElementById('ag-com-int').value)||0,comMov:parseFloat(document.getElementById('ag-com-mov').value)||0,color:agColor});
-  saveAll();closeModals();renderAgentes();toast('✅ Agente '+n+' agregado','ok');
+  const rol=document.getElementById('ag-rol').value||'Comercial';
+  agentes.push({
+    id:Date.now(),nombre:n,rol,
+    inicio:document.getElementById('ag-inicio').value,
+    sueldo:parseFloat(document.getElementById('ag-sueldo').value)||0,
+    meta:parseInt(document.getElementById('ag-meta').value)||0,
+    comInt:parseFloat(document.getElementById('ag-com-int').value)||0,
+    comMov:parseFloat(document.getElementById('ag-com-mov').value)||0,
+    color:agColor
+  });
+  saveAll();closeModals();renderAgentes();toast('✅ Agente '+n+' ('+rol+') agregado','ok');
 }
 function savePago(){
   const ag=document.getElementById('p-agente').value,m=parseFloat(document.getElementById('p-monto').value);
