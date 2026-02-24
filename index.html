@@ -934,14 +934,10 @@ select option{background:var(--s2);}
   </div>
   <div class="fg"><label>Descripción</label><input type="text" id="g-desc" placeholder="Ej: Alquiler oficina, internet..."></div>
   <div class="fg"><label>Categoría</label>
-    <select id="g-cat">
-      <option value="Infraestructura">🏢 Infraestructura</option>
-      <option value="Servicios básicos">⚡ Servicios básicos</option>
-      <option value="Tecnología">💻 Tecnología / Software</option>
-      <option value="Marketing">📢 Marketing</option>
-      <option value="Transportes">🚗 Transportes</option>
-      <option value="Otros">📦 Otros</option>
-    </select>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="g-cat" style="flex:1;"></select>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addCatGasto()" title="Nueva categoría" style="padding:7px 10px;white-space:nowrap;">+ Cat.</button>
+    </div>
   </div>
   <div class="macts">
     <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
@@ -1479,10 +1475,11 @@ async function syncBackground(){
       setGSStatus('ok');
       renderDashboard();
       toast('☁️ Sincronizado — '+agentes.length+' agentes · '+ventas.length+' ventas','ok');
-    } else if(remote && !remote.agentes?.length && (agentes.length||ventas.length)){
-      // Sheets vacío, tenemos datos locales → subir
-      await syncToSheets();
-      setGSStatus('ok');
+    } else if(!remote || (!remote.agentes?.length && !remote.ventas?.length)){
+      // Sheets vacío o sin respuesta — NO auto-push para evitar duplicar
+      // El usuario debe usar "Subir a Sheets" manualmente si quiere subir
+      setGSStatus(remote ? 'ok' : 'error');
+      if(!remote) toast('📴 Sin conexión a Sheets — datos locales','warn');
     } else {
       setGSStatus(remote ? 'ok' : 'error');
       if(!remote) toast('📴 Sin conexión a Sheets — datos locales','warn');
@@ -1724,12 +1721,17 @@ function copyGSCode(){
 }
 
 /* ─── COMPUTED ─── */
-const totalCom=()=>ventas.reduce((s,v)=>s+v.comision,0);
-const totalDec=()=>decomisiones.reduce((s,d)=>s+d.monto,0);
-const totalPagos=()=>pagos.reduce((s,p)=>s+p.monto,0)+bonos.reduce((s,b)=>s+b.monto,0);
-const totalGastos=()=>gastos.reduce((s,g)=>s+g.monto,0);
+// Todas las funciones base respetan globalMes si está activo
+const totalCom=()=>getIngMes(globalMes);
+const totalDec=()=>getDecosMes(globalMes).reduce((s,d)=>s+d.monto,0);
+const totalPagos=()=>getPagosMes(globalMes).reduce((s,p)=>s+p.monto,0)+getBonosMes(globalMes).reduce((s,b)=>s+b.monto,0);
+const totalGastos=()=>getGastosMes(globalMes).reduce((s,g)=>s+g.monto,0);
 const totalEg=()=>totalPagos()+totalGastos();
 const balNeto=()=>totalCom()-totalEg();
+// Totales SIEMPRE acumulados (para gráficos históricos y balance total)
+const totalComAll=()=>ventas.reduce((s,v)=>s+v.comision,0);
+const totalEgAll=()=>pagos.reduce((s,p)=>s+p.monto,0)+bonos.reduce((s,b)=>s+b.monto,0)+gastos.reduce((s,g)=>s+g.monto,0);
+const totalDecAll=()=>decomisiones.reduce((s,d)=>s+d.monto,0);
 const riesgoAct=()=>ventas.filter(v=>!decomisiones.find(d=>d.ventaId===v.id)&&monthsAgo(v.fecha)<6).reduce((s,v)=>s+v.comision,0);
 const ventasSafe=()=>ventas.filter(v=>monthsAgo(v.fecha)>=6).length;
 const getAg=id=>agentes.find(a=>a.id===id)||{nombre:'Desconocido',color:'#555'};
@@ -1977,7 +1979,7 @@ function renderDashboard(){
   const egD=Array.from({length:6},(_,i)=>{const now=new Date();const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);const yr=d.getFullYear(),mo=d.getMonth();const f=(arr)=>arr.filter(x=>{const xd=new Date(x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x.monto||0),0);return f(pagos)+f(bonos)+f(gastos);});
   charts['flow']=new Chart(document.getElementById('flowChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Comisiones',data:ingD,backgroundColor:'rgba(0,255,225,.55)',borderRadius:6,borderSkipped:false},{label:'Egresos',data:egD,backgroundColor:'rgba(255,45,110,.45)',borderRadius:6,borderSkipped:false}]},options:chartOpts()});
   dc('eg');
-  const tNom=totalPagos(),tGas=totalGastos(),tDec=totalDec();
+  const tNom=pgF.reduce((s,p)=>s+p.monto,0)+bnF.reduce((s,b)=>s+b.monto,0),tGas=gsF.reduce((s,g)=>s+g.monto,0),tDec=totalDec();
   if(tNom+tGas+tDec>0){charts['eg']=new Chart(document.getElementById('egresoChart').getContext('2d'),{type:'doughnut',data:{labels:['Nómina & Bonos','Gastos Operativos','Decomisiones'],datasets:[{data:[tNom,tGas,tDec],backgroundColor:['rgba(77,166,255,.7)','rgba(255,176,32,.7)','rgba(255,45,110,.7)'],borderWidth:0,hoverOffset:5}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10,family:'DM Sans'},padding:7,boxWidth:8}}},cutout:'65%'}});}
 
   const recent=[...ventas].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
@@ -2219,24 +2221,44 @@ function delDC(id){decomisiones=decomisiones.filter(d=>d.id!==id);saveAll();rend
 /* ─── AGENTES ─── */
 function renderAgentes(){
   buildSel('v-agente');
+  buildGlobalMesFiltro();
   if(!agentes.length){document.getElementById('agent-cards').innerHTML='';document.getElementById('ag-table').innerHTML='<tr><td colspan="9"><div class="empty">👥 Sin agentes — agrega tu primer agente</div></td></tr>';return;}
   const ROL_ICO={'Comercial':'💼','BackOffice':'🖥️','Supervisor':'👑'};
   const ROL_COLOR={'Comercial':'var(--neon)','BackOffice':'var(--blue)','Supervisor':'var(--amber)'};
+  // Gastos compartidos (back+supervisor+gastos operativos) repartidos entre comerciales
+  const comerciales=agentes.filter(a=>(a.rol||'Comercial')==='Comercial');
+  const totalGastosOp=totalGastos(); // ya respeta globalMes
+  const totalSueldosSoporte=agentes.filter(a=>a.rol==='BackOffice'||a.rol==='Supervisor')
+    .reduce((s,a)=>{
+      const apg=getPagosMes(globalMes).filter(p=>p.agenteId===a.id);
+      return s+apg.reduce((ss,p)=>ss+p.monto,0);
+    },0);
+  const totalCostoCompartido=totalGastosOp+totalSueldosSoporte;
+  const costoPorComercial=comerciales.length>0?(totalCostoCompartido/comerciales.length):0;
   const agStats=agentes.map(ag=>{
     const rol=ag.rol||'Comercial';
-    const avs=ventas.filter(v=>v.agenteId===ag.id);
+    const avs=getVentasMes(globalMes).filter(v=>v.agenteId===ag.id);
+    const avsAll=ventas.filter(v=>v.agenteId===ag.id);
     const com=avs.reduce((s,v)=>s+v.comision,0);
-    const risk=avs.filter(v=>monthsAgo(v.fecha)<6&&!decomisiones.find(d=>d.ventaId===v.id)).reduce((s,v)=>s+v.comision,0);
+    const comAll=avsAll.reduce((s,v)=>s+v.comision,0);
+    const risk=avsAll.filter(v=>monthsAgo(v.fecha)<6&&!decomisiones.find(d=>d.ventaId===v.id)).reduce((s,v)=>s+v.comision,0);
     const decs=decomisiones.filter(d=>{const v=ventas.find(vv=>vv.id===d.ventaId);return v&&v.agenteId===ag.id;}).length;
     const pct=ag.meta&&avs.length?Math.min((avs.length/ag.meta)*100,100):0;
-    return{ag,rol,ventas:avs.length,com,risk,decs,pct};
+    // Costo directo: sus pagos del período
+    const costoDirecto=getPagosMes(globalMes).filter(p=>p.agenteId===ag.id).reduce((s,p)=>s+p.monto,0)
+      +getBonosMes(globalMes).filter(b=>b.agenteId===ag.id).reduce((s,b)=>s+b.monto,0);
+    // Costo total para comerciales: directo + cuota parte de gastos compartidos
+    const costoTotal=rol==='Comercial'?costoDirecto+costoPorComercial:costoDirecto;
+    const rentabilidad=rol==='Comercial'&&costoTotal>0?((com-costoTotal)/costoTotal*100):null;
+    return{ag,rol,ventas:avs.length,com,comAll,risk,decs,pct,costoDirecto,costoTotal,rentabilidad};
   }).sort((a,b)=>{
-    // Comerciales primero, luego Supervisores, luego BackOffice
     const order={'Comercial':0,'Supervisor':1,'BackOffice':2};
     return (order[a.rol]||0)-(order[b.rol]||0)||b.com-a.com;
   });
-  document.getElementById('agent-cards').innerHTML=agStats.map(s=>`
-    <div class="ap-card">
+  const periodoLbl=globalMes?' ('+getMesLabel(globalMes)+')':'';
+  document.getElementById('agent-cards').innerHTML=agStats.map(s=>{
+    const rentColor=s.rentabilidad===null?'var(--txt3)':s.rentabilidad>=50?'var(--neon)':s.rentabilidad>=0?'var(--amber)':'var(--hot)';
+    return`<div class="ap-card">
       <div class="ap-top">
         <div class="ap-av" style="background:${s.ag.color};">${s.ag.nombre.slice(0,2).toUpperCase()}</div>
         <span class="pill" style="background:${ROL_COLOR[s.rol]}22;color:${ROL_COLOR[s.rol]};border:1px solid ${ROL_COLOR[s.rol]}44;">${ROL_ICO[s.rol]} ${s.rol}</span>
@@ -2244,15 +2266,19 @@ function renderAgentes(){
       <div class="ap-name">${s.ag.nombre}</div>
       <div style="font-size:10px;color:var(--txt2);text-transform:none;letter-spacing:normal;">Meta: ${s.ag.meta||'—'}/mes · Desde ${s.ag.inicio||'—'}</div>
       ${s.rol==='Comercial'?`
-        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--neon);margin-top:7px;">${fmt(s.com)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--neon);margin-top:7px;">${fmt(s.com)} <span style="font-size:10px;color:var(--txt3);">ingresos${periodoLbl}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;">
+          <div style="font-size:10px;color:var(--hot);text-transform:none;">Costo total: ${fmt(s.costoTotal)}</div>
+          <div style="font-size:10px;font-weight:700;color:${rentColor};">${s.rentabilidad!==null?(s.rentabilidad>=0?'▲':'▼')+Math.abs(s.rentabilidad).toFixed(0)+'% rent.':'—'}</div>
+        </div>
         <div style="font-size:10px;color:var(--amber);text-transform:none;">En riesgo: ${fmt(s.risk)}</div>
         <div class="pbar"><div class="pfill" style="width:${s.pct}%;background:${s.ag.color};"></div></div>
-        <div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}% de meta mensual</div>
+        <div style="font-size:9px;color:var(--txt3);">${s.pct.toFixed(0)}% de meta mensual · ${s.ventas} ventas</div>
       `:`
-        <div style="font-size:11px;color:var(--txt2);margin-top:7px;text-transform:none;">Sueldo base: ${fmt(s.ag.sueldo||0)}</div>
+        <div style="font-size:11px;color:var(--txt2);margin-top:7px;text-transform:none;">Costo del período: ${fmt(s.costoDirecto)}</div>
         <div style="font-size:10px;color:var(--txt3);text-transform:none;">Gasto operativo del negocio</div>
       `}
-    </div>`).join('');
+    </div>`;}).join('');
   document.getElementById('ag-table').innerHTML=`
     <thead><tr><th>#</th><th>Agente</th><th>Rol</th><th>Ventas</th><th>Comisiones</th><th>En riesgo</th><th>Decomis.</th><th>Meta</th><th></th></tr></thead>
     <tbody>${agStats.map((s,i)=>`<tr>
@@ -2313,45 +2339,64 @@ function saveEditAgente(){
 
 /* ─── GASTOS ─── */
 function renderGastos(){
-  const catSums={};gastos.forEach(g=>{catSums[g.cat]=(catSums[g.cat]||0)+g.monto;});
+  buildGlobalMesFiltro();
+  const gsF=getGastosMes(globalMes);
+  const catSums={};gsF.forEach(g=>{catSums[g.cat]=(catSums[g.cat]||0)+g.monto;});
   dc('gastos');
   if(Object.keys(catSums).length){charts['gastos']=new Chart(document.getElementById('gastosChart').getContext('2d'),{type:'doughnut',data:{labels:Object.keys(catSums),datasets:[{data:Object.values(catSums),backgroundColor:['rgba(0,255,225,.7)','rgba(255,176,32,.7)','rgba(176,106,255,.7)','rgba(16,232,154,.7)','rgba(6,224,224,.7)','rgba(255,45,110,.7)'],borderWidth:0,hoverOffset:5}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#8898c0',font:{size:10},padding:6,boxWidth:8}}},cutout:'65%'}});}
-  const tot=totalGastos();
+  const tot=gsF.reduce((s,g)=>s+g.monto,0);
+  const periodoLbl=globalMes?' — '+getMesLabel(globalMes):'';
+  // Mostrar total con período
+  const totEl=document.getElementById('gastos-total-lbl');
+  if(totEl) totEl.textContent='Total'+periodoLbl+': '+fmt(tot);
   document.getElementById('gastos-summary').innerHTML=Object.entries(catSums).sort((a,b)=>b[1]-a[1]).map(([cat,sum])=>`
     <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--b1);">
       <div style="flex:1;"><div style="font-size:12px;font-weight:600;text-transform:none;">${cat}</div>
       <div style="height:3px;background:var(--s3);border-radius:99px;margin-top:4px;overflow:hidden;"><div style="width:${tot>0?(sum/tot*100):0}%;height:100%;background:var(--amber);border-radius:99px;"></div></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--amber);">${fmt(sum)}</div>
-    </div>`).join('');
-  document.getElementById('g-table').innerHTML=gastos.length?[...gastos].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(g=>`<tr>
+    </div>`).join('')||'<div class="empty" style="padding:12px 0;">Sin gastos'+(globalMes?' en '+getMesLabel(globalMes):' registrados')+'</div>';
+  document.getElementById('g-table').innerHTML=gsF.length?[...gsF].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(g=>`<tr>
     <td style="color:var(--txt3);font-family:'DM Mono',monospace;font-size:10px;">${g.fecha}</td>
     <td style="font-weight:500;text-transform:none;">${g.desc}</td>
     <td><span class="pill pill-a">${g.cat}</span></td>
     <td style="font-family:'DM Mono',monospace;font-weight:700;color:var(--hot);">${fmt(g.monto)}</td>
-    <td><button class="db" onclick="delGasto(${g.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan="5"><div class="empty">Sin gastos registrados</div></td></tr>';
+    <td><button class="db" onclick="delGasto(${g.id})">🗑</button></td></tr>`).join(''):'<tr><td colspan="5"><div class="empty">Sin gastos'+(globalMes?' en '+getMesLabel(globalMes):' registrados')+'</div></td></tr>';
 }
 function delGasto(id){gastos=gastos.filter(g=>g.id!==id);saveAll();renderGastos();toast('🗑️ Gasto eliminado');}
 
 /* ─── BALANCE ─── */
 function renderBalance(){
+  buildGlobalMesFiltro();
   const ing=totalCom(),eg=totalEg(),ben=ing-eg,risk=riesgoAct(),adj=ben-risk*0.5;
+  const periodoLbl=globalMes?' — '+getMesLabel(globalMes):'';
   document.getElementById('bal-ing').textContent=fmt(ing);document.getElementById('bal-eg').textContent=fmt(eg);
   document.getElementById('bal-ben').textContent=fmt(ben);document.getElementById('bal-ben').style.color=ben>=0?'var(--neon)':'var(--hot)';
   document.getElementById('bal-adj').textContent=fmt(adj);document.getElementById('bal-adj').style.color=adj>=0?'var(--neon)':'var(--hot)';
   dc('balance');
+  // Gráfico siempre muestra 6 meses históricos (no filtrado)
   const labels=monthLabels(6);
   const ingD=mTotals(ventas,'comision',6);
-  const egD=Array.from({length:6},(_,i)=>{const now=new Date();const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);const yr=d.getFullYear(),mo=d.getMonth();const f=(arr)=>arr.filter(x=>{const xd=new Date(x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x.monto||0),0);return f(pagos)+f(bonos)+f(gastos);});
+  const egD=Array.from({length:6},(_,i)=>{const now=new Date();const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);const yr=d.getFullYear(),mo=d.getMonth();const f=(arr)=>arr.filter(x=>{const xd=new Date(x.mesRef?x.mesRef+'-01':x.fecha||today());return xd.getFullYear()===yr&&xd.getMonth()===mo;}).reduce((s,x)=>s+(x.monto||0),0);return f(pagos)+f(bonos)+f(gastos);});
   const balD=ingD.map((v,i)=>v-egD[i]);
   charts['balance']=new Chart(document.getElementById('balanceChart').getContext('2d'),{type:'line',data:{labels,datasets:[{label:'Ingresos',data:ingD,borderColor:'rgba(0,255,225,.8)',backgroundColor:'rgba(0,255,225,.07)',borderWidth:2,fill:true,tension:.35,pointRadius:3},{label:'Egresos',data:egD,borderColor:'rgba(255,45,110,.7)',backgroundColor:'rgba(255,45,110,.05)',borderWidth:2,fill:false,tension:.35,pointRadius:3},{label:'Balance',data:balD,borderColor:'rgba(77,166,255,.9)',borderWidth:2,fill:false,tension:.35,pointRadius:3,borderDash:[6,3]}]},options:chartOpts()});
   const tNom=totalPagos(),tGas=totalGastos(),tDec=totalDec();
-  const rows=[{label:'(+) Comisiones cobradas',v:ing,tipo:'Ingreso',color:'var(--neon)'},{label:'(−) Nómina total (sueldos + com. + bonos)',v:-tNom,tipo:'Egreso',color:'var(--hot)'},{label:'(−) Gastos operativos',v:-tGas,tipo:'Egreso',color:'var(--hot)'},{label:'(−) Decomisiones realizadas',v:-tDec,tipo:'Egreso',color:'var(--hot)'},{label:'(=) BENEFICIO NETO',v:ben,tipo:'Resultado',color:ben>=0?'var(--neon)':'var(--hot)',bold:true},{label:'(−) Riesgo latente (50% probabilidad)',v:-risk*0.5,tipo:'Riesgo',color:'var(--amber)'},{label:'(=) BENEFICIO AJUSTADO',v:adj,tipo:'Resultado',color:adj>=0?'var(--neon)':'var(--hot)',bold:true}];
-  document.getElementById('pl-table').innerHTML='<table style="width:100%;"><thead><tr><th>Concepto</th><th>Importe</th><th>% ingresos</th><th>Tipo</th></tr></thead><tbody>'+rows.map(r=>`<tr style="${r.bold?'border-top:1px solid var(--b2);':''}""><td style="font-weight:${r.bold?700:400};font-size:${r.bold?'12':'11.5'}px;text-transform:none;">${r.label}</td><td style="font-family:'DM Mono',monospace;font-weight:700;color:${r.color};font-size:12px;">${fmt(r.v)}</td><td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--txt2);">${ing>0?((Math.abs(r.v)/ing)*100).toFixed(1)+'%':'—'}</td><td><span class="pill ${r.tipo==='Ingreso'?'pill-g':r.tipo==='Egreso'?'pill-r':r.tipo==='Riesgo'?'pill-a':'pill-b'}">${r.tipo}</span></td></tr>`).join('')+'</tbody></table>';
+  const rows=[
+    {label:'(+) Comisiones cobradas'+periodoLbl,v:ing,tipo:'Ingreso',color:'var(--neon)'},
+    {label:'(−) Nómina (sueldos + comisiones + bonos)',v:-tNom,tipo:'Egreso',color:'var(--hot)'},
+    {label:'(−) Gastos operativos',v:-tGas,tipo:'Egreso',color:'var(--hot)'},
+    {label:'(−) Decomisiones realizadas',v:-tDec,tipo:'Egreso',color:'var(--hot)'},
+    {label:'(=) BENEFICIO NETO'+periodoLbl,v:ben,tipo:'Resultado',color:ben>=0?'var(--neon)':'var(--hot)',bold:true},
+    {label:'(−) Riesgo latente (50% probabilidad)',v:-risk*0.5,tipo:'Riesgo',color:'var(--amber)'},
+    {label:'(=) BENEFICIO AJUSTADO'+periodoLbl,v:adj,tipo:'Resultado',color:adj>=0?'var(--neon)':'var(--hot)',bold:true}
+  ];
+  document.getElementById('pl-table').innerHTML='<table style="width:100%;"><thead><tr><th>Concepto</th><th>Importe</th><th>% ingresos</th><th>Tipo</th></tr></thead><tbody>'+rows.map(r=>`<tr style="${r.bold?'border-top:1px solid var(--b2);':''}"><td style="font-weight:${r.bold?700:400};font-size:${r.bold?'12':'11.5'}px;text-transform:none;">${r.label}</td><td style="font-family:'DM Mono',monospace;font-weight:700;color:${r.color};font-size:12px;">${fmt(r.v)}</td><td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--txt2);">${ing>0?((Math.abs(r.v)/ing)*100).toFixed(1)+'%':'—'}</td><td><span class="pill ${r.tipo==='Ingreso'?'pill-g':r.tipo==='Egreso'?'pill-r':r.tipo==='Riesgo'?'pill-a':'pill-b'}">${r.tipo}</span></td></tr>`).join('')+'</tbody></table>';
 }
 
 /* ─── EDUCACIÓN FINANCIERA ─── */
 function renderEducacion(){
-  const ing=totalCom(),eg=totalEg(),bal=balNeto(),decos=totalDec(),venT=ventas.length;
+  buildGlobalMesFiltro();
+  const vF=getVentasMes(globalMes);
+  const ing=totalCom(),eg=totalEg(),bal=balNeto(),decos=totalDec(),venT=vF.length;
   const margen=ing>0?((bal/ing)*100):0;
   
   // Margen
@@ -2373,7 +2418,7 @@ function renderEducacion(){
   
   // CPV
   const cpv=venT>0?(eg/venT):0;
-  const comProm=venT>0?(ing/venT):0;
+  const comProm=venT>0?(vF.reduce((s,v)=>s+v.comision,0)/venT):0;
   const el4=document.getElementById('edu-cpv');
   if(el4) el4.innerHTML=venT>0?`Costo por venta: <strong style="color:${cpv<comProm?'var(--neon)':'var(--hot)'};">${fmt(cpv)}</strong><br>Comisión promedio por venta: <strong>${fmt(comProm)}</strong><br>${cpv<comProm?`✅ Margen por venta: ${fmt(comProm-cpv)}`:`⚠️ El CPV supera la comisión — revisar estructura de costos`}`:
     'Registra ventas y gastos para calcular el CPV.';
@@ -2467,7 +2512,32 @@ function updateRolInfo(){
 function pickC(c,el){agColor=c;document.querySelectorAll('#ag-colpick div').forEach(d=>d.style.border='2px solid transparent');el.style.border='2px solid #fff';}
 
 function openModalV(){buildSel('v-agente');document.getElementById('v-fecha').value=today();document.getElementById('v-comision').value='';document.getElementById('v-cliente').value='';document.getElementById('v-nota').value='';openM('modal-venta');}
-function openModalG(){document.getElementById('g-fecha').value=today();document.getElementById('g-monto').value='';document.getElementById('g-desc').value='';openM('modal-gasto');}
+function getCatsGasto(){
+  const def=['Infraestructura','Servicios básicos','Tecnología','Marketing','Transportes','Otros'];
+  try{const saved=JSON.parse(localStorage.getItem('fc_cats_gasto')||'[]');return [...new Set([...def,...saved])].sort();}catch(e){return def;}
+}
+function addCatGasto(){
+  const nueva=prompt('Nombre de la nueva categoría:')?.trim();
+  if(!nueva)return;
+  try{
+    const saved=JSON.parse(localStorage.getItem('fc_cats_gasto')||'[]');
+    if(!saved.includes(nueva)){saved.push(nueva);localStorage.setItem('fc_cats_gasto',JSON.stringify(saved));}
+  }catch(e){}
+  buildCatSelect('g-cat',nueva);
+  toast('✅ Categoría "'+nueva+'" creada','ok');
+}
+function buildCatSelect(selId,selected){
+  const sel=document.getElementById(selId);if(!sel)return;
+  const cats=getCatsGasto();
+  sel.innerHTML=cats.map(c=>`<option value="${c}" ${selected===c?'selected':''}>${c}</option>`).join('');
+}
+function openModalG(){
+  document.getElementById('g-fecha').value=today();
+  document.getElementById('g-monto').value='';
+  document.getElementById('g-desc').value='';
+  buildCatSelect('g-cat','');
+  openM('modal-gasto');
+}
 function openModalAg(){
   document.getElementById('ag-nombre').value='';
   document.getElementById('ag-inicio').value=today();
