@@ -1802,6 +1802,23 @@ function pushData(data) {
   return ok({pushed: pushed, warnings: failed});
 }
 
+function isCorruptHeader(hdr) {
+  var s = String(hdr).trim();
+  return s === '' || /^Columna\s*\d+$/i.test(s);
+}
+
+function rowIsRealHeaders(row, schema) {
+  // Una fila es "headers reales" si contiene al menos la mitad de los campos del schema
+  var found = 0;
+  for (var i = 0; i < row.length; i++) {
+    var cell = String(row[i]).trim().toLowerCase();
+    for (var j = 0; j < schema.length; j++) {
+      if (cell === schema[j].toLowerCase()) { found++; break; }
+    }
+  }
+  return found >= Math.ceil(schema.length / 2);
+}
+
 function pullData() {
   var ss;
   try { ss = SpreadsheetApp.openById(SHEET_ID); }
@@ -1816,41 +1833,75 @@ function pullData() {
       var values = sheet.getDataRange().getValues();
       if (values.length < 2) { result[name] = []; continue; }
 
-      var firstRow = values[0];
-      var headers = [];
-      var colMap  = [];
+      var schema   = SCHEMA[name] || [];
+      var headers  = [];
+      var colMap   = [];
+      var dataStart = 1; // fila donde empiezan los datos (índice en values[])
 
-      // Detectar si headers son corruptos tipo "Columna 1"
-      var corruptCount = 0;
-      for (var h = 0; h < firstRow.length; h++) {
-        var hdr = String(firstRow[h]).trim();
-        if (hdr === '' || /^Columna\s*\d+$/i.test(hdr)) corruptCount++;
+      var row0 = values[0];
+      var row1 = values.length > 1 ? values[1] : null;
+
+      // Contar headers corruptos en fila 1
+      var corrupt0 = 0;
+      for (var h = 0; h < row0.length; h++) {
+        if (isCorruptHeader(row0[h])) corrupt0++;
       }
 
-      if (corruptCount > 0 && SCHEMA[name]) {
-        // Leer columnas A en adelante por posicion usando el SCHEMA
-        // e ignorar las columnas extra de la derecha con 0s
-        var schema = SCHEMA[name];
-        for (var s = 0; s < schema.length; s++) {
-          headers.push(schema[s]);
-          colMap.push(s);
-        }
-      } else {
-        // Headers normales: leer por nombre ignorando vacios
-        for (var hh = 0; hh < firstRow.length; hh++) {
-          var hd = String(firstRow[hh]).trim();
+      if (corrupt0 === 0) {
+        // CASO NORMAL: fila 1 tiene headers reales
+        dataStart = 1;
+        for (var hh = 0; hh < row0.length; hh++) {
+          var hd = String(row0[hh]).trim();
           if (hd !== '') { headers.push(hd); colMap.push(hh); }
+        }
+
+      } else if (row1 && rowIsRealHeaders(row1, schema)) {
+        // CASO DE TU HOJA: fila 1 corrupta, fila 2 tiene los headers reales
+        // Los datos empiezan en fila 3 (índice 2)
+        dataStart = 2;
+        // Leer headers de fila 2, solo las columnas con valores reales (ignorar G-J con 0s)
+        for (var hh2 = 0; hh2 < row1.length; hh2++) {
+          var hd2 = String(row1[hh2]).trim();
+          if (hd2 !== '' && !isCorruptHeader(hd2)) {
+            // Verificar que no sea una columna "fantasma" chequeando si hay datos reales debajo
+            var hasData = false;
+            for (var di = 2; di < Math.min(values.length, 6); di++) {
+              if (String(values[di][hh2] || '').trim() !== '' && String(values[di][hh2] || '').trim() !== '0') {
+                hasData = true; break;
+              }
+            }
+            if (hasData || hh2 < schema.length) {
+              headers.push(hd2);
+              colMap.push(hh2);
+            }
+          }
+        }
+        // Si no encontramos headers válidos, caer al schema por posición
+        if (headers.length === 0 && schema.length > 0) {
+          for (var s2 = 0; s2 < schema.length; s2++) {
+            headers.push(schema[s2]);
+            colMap.push(s2);
+          }
+        }
+
+      } else {
+        // CASO SCHEMA: todo corrupto, usar posiciones del SCHEMA
+        dataStart = 1;
+        for (var s3 = 0; s3 < schema.length; s3++) {
+          headers.push(schema[s3]);
+          colMap.push(s3);
         }
       }
 
       if (headers.length === 0) { result[name] = []; continue; }
 
       var arr = [];
-      for (var i = 1; i < values.length; i++) {
+      for (var i = dataStart; i < values.length; i++) {
         var row = values[i];
         var empty = true;
         for (var ci = 0; ci < colMap.length; ci++) {
-          if (String(row[colMap[ci]] || '').trim() !== '') { empty = false; break; }
+          var cellVal = String(row[colMap[ci]] || '').trim();
+          if (cellVal !== '' && cellVal !== '0') { empty = false; break; }
         }
         if (empty) continue;
 
@@ -1868,6 +1919,8 @@ function pullData() {
               var p2 = parseFloat(v);
               if (!isNaN(p2)) v = p2;
             }
+          } else if (typeof v === 'number') {
+            // ya es número, bien
           }
           obj[key] = v;
         }
@@ -1886,6 +1939,59 @@ function pullData() {
   } catch(le) {}
 
   return ok({data: result});
+}
+
+// Limpieza de emergencia: corre esta función UNA VEZ manualmente desde Apps Script
+// para reparar hojas con headers corruptos o columnas fantasma
+function cleanupAllSheets() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var fixed = [];
+  for (var t = 0; t < TABLES.length; t++) {
+    var name = TABLES[t];
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) continue;
+    var values = sheet.getDataRange().getValues();
+    if (values.length < 2) continue;
+
+    var schema = SCHEMA[name];
+    if (!schema) continue;
+
+    var row0 = values[0];
+    // Detectar si fila 1 tiene headers corruptos y fila 2 tiene los reales
+    var corrupt0 = 0;
+    for (var h = 0; h < row0.length; h++) {
+      if (isCorruptHeader(row0[h])) corrupt0++;
+    }
+    if (corrupt0 === 0) continue; // ya está bien
+
+    var row1 = values[1];
+    var isRow1Real = rowIsRealHeaders(row1, schema);
+
+    // Determinar desde qué fila empiezan los datos reales
+    var dataStartIdx = isRow1Real ? 2 : 1;
+    var realData = values.slice(dataStartIdx);
+
+    // Filtrar solo las primeras N columnas del schema (ignorar columnas fantasma)
+    var ncols = schema.length;
+    var cleanData = [schema];
+    for (var i = 0; i < realData.length; i++) {
+      var rowSlice = [];
+      var allZeroOrEmpty = true;
+      for (var j = 0; j < ncols; j++) {
+        var cell = realData[i][j] !== undefined ? realData[i][j] : '';
+        rowSlice.push(cell);
+        if (String(cell).trim() !== '' && String(cell).trim() !== '0') allZeroOrEmpty = false;
+      }
+      if (!allZeroOrEmpty) cleanData.push(rowSlice);
+    }
+
+    // Reescribir la hoja limpia
+    sheet.clearContents();
+    if (sheet.getMaxColumns() > ncols) sheet.deleteColumns(ncols + 1, sheet.getMaxColumns() - ncols);
+    sheet.getRange(1, 1, cleanData.length, ncols).setValues(cleanData);
+    fixed.push(name + ' (' + (cleanData.length - 1) + ' filas)');
+  }
+  SpreadsheetApp.getUi().alert('Hojas reparadas: ' + (fixed.length > 0 ? fixed.join(', ') : 'ninguna necesitaba reparación'));
 }
 
 function ok(data) {
