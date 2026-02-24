@@ -1428,6 +1428,38 @@ function sd(k,v){try{localStorage.setItem(sk(k),JSON.stringify(v));}catch(e){}}
 
 let agentes=[],ventas=[],pagos=[],bonos=[],gastos=[],decomisiones=[],descuentos=[];
 function loadAll(){agentes=ld('ag',[]);ventas=ld('vs',[]);pagos=ld('pg',[]);bonos=ld('bn',[]);gastos=ld('gs',[]);decomisiones=ld('dc',[]);descuentos=ld('des',[]);}
+
+// Normaliza tipos de datos al venir de Sheets (todo llega como string)
+function normalizeSheets(data){
+  const toNum=v=>v===''||v===null||v===undefined?0:parseFloat(v)||0;
+  const toInt=v=>v===''||v===null||v===undefined?0:parseInt(v)||0;
+  const toStr=v=>v===null||v===undefined?'':String(v);
+  if(data.agentes) data.agentes=data.agentes.map(a=>({...a,
+    id:toInt(a.id), sueldo:toNum(a.sueldo), meta:toInt(a.meta),
+    comInt:toNum(a.comInt), comMov:toNum(a.comMov)
+  }));
+  if(data.ventas) data.ventas=data.ventas.map(v=>({...v,
+    id:toInt(v.id), agenteId:toInt(v.agenteId), comision:toNum(v.comision)
+  }));
+  if(data.pagos) data.pagos=data.pagos.map(p=>({...p,
+    id:toInt(p.id), agenteId:toInt(p.agenteId), monto:toNum(p.monto),
+    tipo:toStr(p.tipo)
+  }));
+  if(data.bonos) data.bonos=data.bonos.map(b=>({...b,
+    id:toInt(b.id), agenteId:toInt(b.agenteId), monto:toNum(b.monto)
+  }));
+  if(data.gastos) data.gastos=data.gastos.map(g=>({...g,
+    id:toInt(g.id), monto:toNum(g.monto)
+  }));
+  if(data.decomisiones) data.decomisiones=data.decomisiones.map(d=>({...d,
+    id:toInt(d.id), ventaId:toInt(d.ventaId), monto:toNum(d.monto)
+  }));
+  if(data.descuentos) data.descuentos=data.descuentos.map(d=>({...d,
+    id:toInt(d.id), agenteId:toInt(d.agenteId), monto:toNum(d.monto),
+    cantidad:toInt(d.cantidad)||1
+  }));
+  return data;
+}
 function saveAll(){
   sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
   if(GS.enabled) scheduleSyncToSheets();
@@ -1485,13 +1517,14 @@ async function syncBackground(){
     const timeoutPromise = new Promise(resolve=>setTimeout(()=>resolve(null),10000));
     const remote = await Promise.race([GS.pull(), timeoutPromise]);
     if(remote && remote.agentes && remote.agentes.length){
-      agentes=remote.agentes;
-      ventas=remote.ventas||ventas;
-      pagos=remote.pagos||pagos;
-      bonos=remote.bonos||bonos;
-      gastos=remote.gastos||gastos;
-      decomisiones=remote.decomisiones||decomisiones;
-      descuentos=remote.descuentos||descuentos;
+      const norm=normalizeSheets(remote);
+      agentes=norm.agentes;
+      ventas=norm.ventas||ventas;
+      pagos=norm.pagos||pagos;
+      bonos=norm.bonos||bonos;
+      gastos=norm.gastos||gastos;
+      decomisiones=norm.decomisiones||decomisiones;
+      descuentos=norm.descuentos||descuentos;
       sd('ag',agentes);sd('vs',ventas);sd('pg',pagos);
       sd('bn',bonos);sd('gs',gastos);sd('dc',decomisiones);sd('des',descuentos);
       setGSStatus('ok');
