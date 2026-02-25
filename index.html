@@ -20,6 +20,7 @@
     start_url: "./",
     display: "standalone",
     orientation: "any",
+    version: "3.0",
     background_color: "#04060f",
     theme_color: "#00ffe1",
     lang: "es",
@@ -1367,6 +1368,14 @@ function installPWA(){
 
 /* ══ CHECK: si viene de ?page= abrir esa sección ══ */
 window.addEventListener('DOMContentLoaded', ()=>{
+  // Desbloquear orientación — aplica tanto en browser como PWA
+  if(screen.orientation && screen.orientation.unlock){
+    try{ screen.orientation.unlock(); }catch(e){}
+  }
+  // Fallback para iOS
+  if(window.screen && window.screen.orientation){
+    try{ window.screen.orientation.unlock(); }catch(e){}
+  }
   const params = new URLSearchParams(window.location.search);
   const page = params.get('page');
   if(page && document.getElementById('page-'+page)){
