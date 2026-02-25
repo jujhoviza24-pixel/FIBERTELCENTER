@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#04060f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -64,7 +64,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--txt);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden;text-transform:uppercase;letter-spacing:.2px;}
+body{background:var(--bg);color:var(--txt);font-family:'DM Sans',sans-serif;min-height:100vh;text-transform:uppercase;letter-spacing:.2px;}
 input,textarea,select,p,code,pre,.lower,.modal-sub,.card-sub,.nsec,td,th,label{text-transform:none;letter-spacing:normal;}
 
 /* ═══ ANIMATED BG ═══ */
@@ -132,19 +132,11 @@ nav::-webkit-scrollbar{width:3px;}nav::-webkit-scrollbar-thumb{background:var(--
 
 /* ═══ MAIN ═══ */
 .main{margin-left:var(--sw);padding:26px 30px;min-height:100vh;position:relative;z-index:1;-webkit-overflow-scrolling:touch;overflow-x:hidden;}
-.page{
-  display:block;
-  position:absolute;
-  top:0;left:0;right:0;
-  opacity:0;
-  pointer-events:none;
-  transition:opacity .18s ease;
-  will-change:opacity;
-}
-.page.active{
-  opacity:1;
-  pointer-events:auto;
-  position:relative;
+.page{display:none;}
+.page.active{display:block;}
+@media(min-width:769px){
+  .page.active{animation:pageIn .2s ease;}
+  @keyframes pageIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 }
 .ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;}
 .ph-eye{font-size:7.5px;letter-spacing:3.5px;text-transform:uppercase;color:var(--neon);font-family:'DM Mono',monospace;margin-bottom:5px;display:flex;align-items:center;gap:6px;}
@@ -168,7 +160,7 @@ nav::-webkit-scrollbar{width:3px;}nav::-webkit-scrollbar-thumb{background:var(--
 /* ═══ METRICS ═══ */
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:16px;}
 .metrics-3{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:16px;}
-.mc{background:rgba(8,13,28,0.75);border:1px solid var(--b1);border-radius:18px;padding:18px;position:relative;overflow:hidden;backdrop-filter:blur(10px);transition:transform .22s,border-color .22s,box-shadow .22s;}
+.mc{background:rgba(8,13,28,0.92);border:1px solid var(--b1);border-radius:18px;padding:18px;position:relative;overflow:hidden;transition:transform .22s,border-color .22s,box-shadow .22s;}
 .mc:hover{transform:translateY(-3px);}
 .mc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
 .mc::after{content:'';position:absolute;width:120px;height:120px;border-radius:50%;bottom:-40px;right:-40px;filter:blur(35px);}
@@ -211,7 +203,7 @@ nav::-webkit-scrollbar{width:3px;}nav::-webkit-scrollbar-thumb{background:var(--
 .charts3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:16px;}
 
 /* ═══ TABLE ═══ */
-.tcard{background:rgba(8,13,28,0.75);border:1px solid var(--b1);border-radius:18px;overflow:hidden;backdrop-filter:blur(10px);margin-bottom:16px;}
+.tcard{background:rgba(8,13,28,0.92);border:1px solid var(--b1);border-radius:18px;overflow:hidden;margin-bottom:16px;}
 .tbar{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--b1);}
 .tbar-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;}
 table{width:100%;border-collapse:collapse;}
@@ -292,7 +284,7 @@ select option{background:var(--s2);}
 
 /* ═══ AGENT CARDS ═══ */
 .aperf{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:16px;}
-.ap-card{background:rgba(8,13,28,0.75);border:1px solid var(--b1);border-radius:16px;padding:16px;backdrop-filter:blur(10px);transition:all .18s;position:relative;overflow:hidden;}
+.ap-card{background:rgba(8,13,28,0.92);border:1px solid var(--b1);border-radius:16px;padding:16px;transition:all .18s;position:relative;overflow:hidden;}
 .ap-card:hover{transform:translateY(-3px);border-color:var(--b2);}
 .ap-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:9px;}
 .ap-av{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#fff;}
@@ -305,7 +297,7 @@ select option{background:var(--s2);}
 
 /* ═══ EDU FINANCIERA ═══ */
 .edu-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
-.edu-card{background:rgba(8,13,28,0.75);border:1px solid var(--b1);border-radius:18px;padding:22px;backdrop-filter:blur(10px);transition:all .22s;position:relative;overflow:hidden;}
+.edu-card{background:rgba(8,13,28,0.92);border:1px solid var(--b1);border-radius:18px;padding:22px;transition:all .22s;position:relative;overflow:hidden;}
 .edu-card:hover{transform:translateY(-3px);border-color:var(--b2);}
 .edu-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--neon),transparent);}
 .edu-tag{font-size:8px;letter-spacing:3px;text-transform:uppercase;color:var(--neon);font-family:'DM Mono',monospace;margin-bottom:7px;}
@@ -330,13 +322,23 @@ select option{background:var(--s2);}
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:1100px){.metrics{grid-template-columns:repeat(2,1fr);}.charts2{grid-template-columns:1fr;}.aperf{grid-template-columns:repeat(2,1fr);}.edu-grid{grid-template-columns:1fr;}.salary-breakdown{grid-template-columns:1fr 1fr;}}
 @media(max-width:768px){
-  .sidebar{transform:translateX(-100%);transition:transform .3s cubic-bezier(.77,0,.18,1);}
+  .sidebar{transform:translateX(-100%);transition:transform .25s ease;}
   .sidebar.open{transform:translateX(0);}
+  /* Quitar blur del sidebar en móvil para rendimiento */
+  .sidebar{backdrop-filter:none;background:rgba(6,10,22,0.99);}
   .main{margin-left:0;padding:14px;}
   .metrics{grid-template-columns:1fr 1fr;}
+  .metrics-3{grid-template-columns:1fr 1fr;}
   .frow,.frow3{grid-template-columns:1fr;}
   .ph h2{font-size:26px;}
   .ph{flex-wrap:wrap;gap:10px;}
+  /* Desactivar hover effects en móvil (causa re-renders) */
+  .mc:hover,.card:hover,.ap-card:hover,.btn:hover{transform:none!important;box-shadow:none!important;}
+  /* Tablas: scroll horizontal */
+  .tcard{overflow-x:auto;}
+  table{min-width:500px;}
+  /* Charts más pequeños */
+  canvas{max-height:160px!important;}
 }
 
 /* ── HAMBURGER BUTTON ── */
@@ -366,13 +368,41 @@ select option{background:var(--s2);}
 /* ── SIDEBAR OVERLAY (tap fuera para cerrar) ── */
 .sidebar-overlay{
   display:none;position:fixed;inset:0;
-  background:rgba(4,6,15,0.6);backdrop-filter:blur(3px);
+  background:rgba(4,6,15,0.65);
   z-index:99;
 }
 .sidebar-overlay.open{display:block;}
 
 /* Scrollbar */
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-thumb{background:var(--s3);border-radius:99px;}::-webkit-scrollbar-thumb:hover{background:var(--b2);}
+
+/* ══ OPTIMIZACIONES MÓVIL — no afectan desktop ══ */
+@media(max-width:900px){
+  /* Desactivar todos los blur — el mayor culpable de lentitud */
+  *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
+  /* Desactivar filter blur en orbs y cards */
+  .orb{filter:none!important;animation:none!important;display:none!important;}
+  .mc::after{filter:none!important;}
+  /* Detener animación del grid de fondo */
+  .grid-bg{animation:none!important;}
+  /* Cards con fondo sólido para no necesitar blur */
+  .card,.mc,.tcard,.ap-card,.edu-card{background:#080d1c!important;}
+  .sidebar{background:#040610!important;backdrop-filter:none!important;}
+  .modal-overlay{backdrop-filter:none!important;background:rgba(4,6,15,0.95)!important;}
+  .toast-item{backdrop-filter:none!important;background:#080d1c!important;}
+  .mob-toggle{backdrop-filter:none!important;}
+  /* Sin animaciones en página — evita parpadeo */
+  .page.active{animation:none!important;}
+  /* Sin hover effects que causan re-render */
+  .mc:hover,.card:hover,.ap-card:hover{transform:none!important;box-shadow:none!important;}
+  /* Tablas scrolleables horizontalmente */
+  .tcard{overflow-x:auto!important;-webkit-overflow-scrolling:touch;}
+  table{min-width:480px;}
+  /* Canvas animado más pequeño para ahorrar GPU */
+  #bgCanvas{opacity:0.4;}
+  /* Orientación libre */
+  html,body{overflow-x:auto;max-width:none;}
+}
 </style>
 </head>
 <body>
@@ -1417,9 +1447,15 @@ window.addEventListener('DOMContentLoaded', ()=>{
     for(let i=ripples.length-1;i>=0;i--){const rip=ripples[i];rip.r+=4;rip.alpha*=.93;if(rip.alpha<.01){ripples.splice(i,1);continue;}ctx.beginPath();ctx.arc(rip.x,rip.y,rip.r,0,Math.PI*2);ctx.strokeStyle='rgba(0,255,225,0.8)';ctx.lineWidth=1.5;ctx.globalAlpha=rip.alpha;ctx.stroke();ctx.globalAlpha=1;}
     // Mouse aura — solo desktop
     if(!isMobile && mx>0){try{const mg=ctx.createRadialGradient(mx,my,0,mx,my,90);mg.addColorStop(0,'rgba(0,255,225,0.04)');mg.addColorStop(1,'rgba(0,0,0,0)');ctx.beginPath();ctx.arc(mx,my,90,0,Math.PI*2);ctx.fillStyle=mg;ctx.globalAlpha=1;ctx.fill();}catch(e){}}
-    requestAnimationFrame(draw);
+    rafId=requestAnimationFrame(draw);;
   }
-  resize();window.addEventListener('resize',resize);draw();
+  resize();window.addEventListener('resize',resize);
+  // Pausar animación cuando la pestaña no está visible (ahorra batería)
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden) cancelAnimationFrame(rafId);
+    else rafId=requestAnimationFrame(draw);
+  });
+  var rafId=requestAnimationFrame(draw);
 })();
 
 /* ─── DATA ─── */
